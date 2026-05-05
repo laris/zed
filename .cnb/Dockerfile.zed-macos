@@ -50,5 +50,18 @@ RUN set -eux; \
     printf 'SDKROOT=%s\n' "$SDKROOT"
 
 RUN set -eux; \
+    printf '%s\n' \
+      '#!/bin/sh' \
+      'if [ "$1" = "--sdk" ] && [ "$3" = "--show-sdk-path" ]; then' \
+      '  case "$2" in' \
+      '    macosx) test -n "${SDKROOT:-}" && printf "%s\n" "$SDKROOT" && exit 0 ;;' \
+      '  esac' \
+      'fi' \
+      'echo "unsupported xcrun shim invocation: $*" >&2' \
+      'exit 127' \
+      > /usr/local/bin/xcrun; \
+    chmod +x /usr/local/bin/xcrun
+
+RUN set -eux; \
     cargo install cargo-about --version 0.8.2 --locked; \
     cargo install cargo-bundle --git https://github.com/zed-industries/cargo-bundle.git --branch zed-deploy
