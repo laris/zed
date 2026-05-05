@@ -47,7 +47,8 @@ RUN set -eux; \
     zig version; \
     test -n "${SDKROOT:-}"; \
     test -d "$SDKROOT"; \
-    printf 'SDKROOT=%s\n' "$SDKROOT"
+    printf 'SDKROOT=%s\n' "$SDKROOT"; \
+    printf '!<arch>\n' > "$SDKROOT/usr/lib/libclang_rt.osx.a"
 
 RUN set -eux; \
     printf '%s\n' \
