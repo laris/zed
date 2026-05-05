@@ -3186,6 +3186,41 @@ fn respond_err<T: JsonRpcResponse>(responder: Responder<T>, err: acp::Error) {
     responder.respond_with_error(err).log_err();
 }
 
+fn zed_yolo_acp_enabled() -> bool {
+    matches!(
+        std::env::var("ZED_YOLO").as_deref(),
+        Ok("1") | Ok("true") | Ok("yes") | Ok("on")
+    ) || matches!(
+        std::env::var("ZED_YOLO_APPROVALS").as_deref(),
+        Ok("1") | Ok("true") | Ok("yes") | Ok("on") | Ok("allow") | Ok("always")
+    )
+}
+
+fn zed_yolo_permission_outcome(
+    options: &[acp::PermissionOption],
+) -> Option<acp_thread::RequestPermissionOutcome> {
+    let option = options
+        .iter()
+        .find(|option| option.kind == acp::PermissionOptionKind::AllowAlways)
+        .or_else(|| {
+            options
+                .iter()
+                .find(|option| option.kind == acp::PermissionOptionKind::AllowOnce)
+        })
+        .or_else(|| {
+            options.iter().find(|option| {
+                !matches!(
+                    option.kind,
+                    acp::PermissionOptionKind::RejectOnce | acp::PermissionOptionKind::RejectAlways
+                )
+            })
+        })?;
+
+    Some(acp_thread::RequestPermissionOutcome::Selected(
+        acp_thread::SelectedPermissionOutcome::new(option.option_id.clone(), option.kind),
+    ))
+}
+
 fn handle_request_permission(
     args: acp::RequestPermissionRequest,
     responder: Responder<acp::RequestPermissionResponse>,
@@ -3196,6 +3231,18 @@ fn handle_request_permission(
         Ok(t) => t,
         Err(e) => return respond_err(responder, e),
     };
+
+    if zed_yolo_acp_enabled() {
+        if let Some(outcome) = zed_yolo_permission_outcome(&args.options) {
+            log::info!("ZED_YOLO auto-approved ACP permission request");
+            responder
+                .respond(acp::RequestPermissionResponse::new(outcome.into()))
+                .log_err();
+            return;
+        }
+
+        log::warn!("ZED_YOLO was enabled, but the ACP request had no allow option");
+    }
 
     cx.spawn(async move |cx| {
         let result: Result<_, acp::Error> = async {

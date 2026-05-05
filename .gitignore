@@ -33,6 +33,7 @@
 /plugins/bin
 /script/node_modules
 /snap
+/dist/
 /zed.xcworkspace
 DerivedData/
 Packages
