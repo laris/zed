@@ -1,7 +1,7 @@
 FROM ghcr.io/rust-cross/cargo-zigbuild:latest
 
-ARG MACOS_SDK_VERSION=12.3
-ARG MACOS_SDK_SHA256=3abd261ceb483c44295a6623fdffe5d44fc4ac2c872526576ec5ab5ad0f6e26c
+ARG MACOS_SDK_VERSION=15.5
+ARG MACOS_SDK_SHA256=c15cf0f3f17d714d1aa5a642da8e118db53d79429eb015771ba816aa7c6c1cbd
 
 ENV CARGO_HOME=/usr/local/cargo
 ENV RUSTUP_HOME=/usr/local/rustup
