@@ -45,6 +45,9 @@ $:
             printf 'SDKROOT=%s\n' "${SDKROOT:-}"
             test -n "${SDKROOT:-}"
             test -d "$SDKROOT"
+            test -e "$SDKROOT/usr/lib/libclang_rt.osx.a"
+            test -e "$SDKROOT/System/Library/Frameworks/Appkit.framework/Appkit.tbd"
+            test -d "$SDKROOT/System/Library/Frameworks/ScreenCaptureKit.framework"
             sccache --show-stats || true
         - name: generate-licenses
           script: |
