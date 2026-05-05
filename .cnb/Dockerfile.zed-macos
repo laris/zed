@@ -1,0 +1,53 @@
+FROM ghcr.io/rust-cross/cargo-zigbuild:latest
+
+ENV CARGO_HOME=/usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV CARGO_INCREMENTAL=0
+ENV RUSTC_WRAPPER=sccache
+ENV SCCACHE_DIR=/var/cache/sccache
+ENV SCCACHE_CACHE_SIZE=80G
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      build-essential \
+      ca-certificates \
+      clang \
+      cmake \
+      curl \
+      file \
+      git \
+      jq \
+      libprotobuf-dev \
+      libssl-dev \
+      lld \
+      mold \
+      nodejs \
+      npm \
+      pkg-config \
+      protobuf-compiler \
+      sccache \
+      time \
+      xz-utils \
+      zip \
+      zstd; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    rustup toolchain install 1.94.1 --profile minimal --component rustfmt --component clippy --component rust-src; \
+    rustup default 1.94.1; \
+    rustup target add \
+      wasm32-wasip2 \
+      wasm32-unknown-unknown \
+      x86_64-unknown-linux-musl \
+      aarch64-apple-darwin \
+      x86_64-apple-darwin; \
+    cargo zigbuild --help >/dev/null; \
+    zig version; \
+    test -n "${SDKROOT:-}"; \
+    test -d "$SDKROOT"; \
+    printf 'SDKROOT=%s\n' "$SDKROOT"
+
+RUN set -eux; \
+    cargo install cargo-about --version 0.8.2 --locked; \
+    cargo install cargo-bundle --git https://github.com/zed-industries/cargo-bundle.git --branch zed-deploy

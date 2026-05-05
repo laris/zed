@@ -1,0 +1,105 @@
+# CNB workspace build for the Zed YOLO fork.
+# Source base: zed-industries/zed v1.1.4-pre.
+#
+# This is a Stage-1 Linux -> macOS compile path. It does not produce a signed
+# .app/.dmg yet; local macOS or a later rcodesign stage should bundle/sign.
+$:
+  vscode:
+    - name: zed-yolo-macos-compile
+      runner:
+        cpus: 64
+        tags: cnb:arch:amd64
+      docker:
+        build:
+          dockerfile: .cnb/Dockerfile.zed-macos
+          by:
+            - .cnb/Dockerfile.zed-macos
+            - Cargo.toml
+            - Cargo.lock
+            - rust-toolchain.toml
+        volumes:
+          - zed-yolo-cargo-registry:/usr/local/cargo/registry:rw
+          - zed-yolo-cargo-git:/usr/local/cargo/git:rw
+          - zed-yolo-sccache:/var/cache/sccache:rw
+          - zed-yolo-target:/workspace/target:rw
+      services:
+        - name: vscode
+          options:
+            onlyPreview: true
+            keepAliveTimeout: 30m
+      env:
+        CARGO_INCREMENTAL: "0"
+        CARGO_TERM_COLOR: always
+        RUSTC_WRAPPER: sccache
+        SCCACHE_DIR: /var/cache/sccache
+        SCCACHE_CACHE_SIZE: 80G
+        RELEASE_TAG: zed-yolo-v1.1.4-pre-enhanced
+      stages:
+        - name: toolchain
+          script: |
+            set -eux
+            rustc -Vv
+            cargo -V
+            cargo zigbuild --help >/dev/null
+            zig version
+            printf 'SDKROOT=%s\n' "${SDKROOT:-}"
+            test -n "${SDKROOT:-}"
+            test -d "$SDKROOT"
+            sccache --show-stats || true
+        - name: generate-licenses
+          script: |
+            set -eux
+            ALLOW_MISSING_LICENSES=yes script/generate-licenses
+        - name: build-macos-targets
+          script: |
+            set -eux
+            rm -rf dist && mkdir -p dist
+            version=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "zed") | .version' | head -n 1)
+            test -n "$version"
+            build_date=$(date -u +%Y%m%d)
+            git_short=$(git rev-parse --short=8 HEAD)
+            dirty=$([ -z "$(git status --porcelain --untracked-files=no)" ] && echo "" || echo "-dirty")
+            build_one() {
+              target="$1"
+              rustup target add "$target"
+              start=$(date +%s)
+              /usr/bin/time -v cargo zigbuild --locked --release \
+                --target "$target" \
+                --features gpui_platform/runtime_shaders \
+                --package zed --package cli
+              /usr/bin/time -v cargo zigbuild --locked --release \
+                --target "$target" \
+                --package remote_server
+              end=$(date +%s)
+              out_dir="dist/zed-yolo-v${version}-${target}-${build_date}-g${git_short}${dirty}"
+              mkdir -p "$out_dir"
+              cp "target/${target}/release/zed" "$out_dir/zed"
+              cp "target/${target}/release/cli" "$out_dir/cli"
+              cp "target/${target}/release/remote_server" "$out_dir/remote_server"
+              tarball="${out_dir}.tar.zst"
+              tar -C dist -I 'zstd -19 -T0' -cf "$tarball" "$(basename "$out_dir")"
+              sha256sum "$tarball" | tee "$tarball.sha256"
+              printf '{"package":"zed-yolo","version":"%s","target":"%s","filename":"%s","sha256":"%s","seconds":%s,"commit":"%s","build":"%s","date":"%s","runtime_shaders":true}\n' \
+                "$version" "$target" "$(basename "$tarball")" "$(sha256sum "$tarball" | awk '{print $1}')" "$((end - start))" "$CNB_COMMIT" "$CNB_BUILD_ID" "$build_date" \
+                | tee "$tarball.build.json"
+            }
+            for target in \
+              aarch64-apple-darwin \
+              x86_64-apple-darwin; do
+              build_one "$target"
+            done
+            sccache --show-stats || true
+        - name: upload-workspace-artifacts
+          image: cnbcool/attachments:latest
+          settings:
+            tag: $RELEASE_TAG
+            attachments:
+              - "dist/zed-yolo-v*.tar.zst"
+              - "dist/zed-yolo-v*.tar.zst.sha256"
+              - "dist/zed-yolo-v*.tar.zst.build.json"
+        - name: cleanup-workspace-dist
+          script: |
+            set -eux
+            find dist -maxdepth 1 -type f -name 'zed-yolo-v*' -print || true
+            rm -rf dist
+            git status --short --untracked-files=all
