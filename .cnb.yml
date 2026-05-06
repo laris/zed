@@ -1,5 +1,5 @@
 # CNB workspace build for the Zed YOLO fork.
-# Source base: zed-industries/zed v1.1.4-pre.
+# Source base: zed-industries/zed v1.1.5-pre.
 #
 # This is a Stage-1 Linux -> macOS compile path. It does not produce a signed
 # .app/.dmg yet; local macOS or a later rcodesign stage should bundle/sign.
@@ -38,7 +38,7 @@ $:
         RUSTC_WRAPPER: sccache
         SCCACHE_DIR: /var/cache/sccache
         SCCACHE_CACHE_SIZE: 80G
-        RELEASE_TAG: zed-yolo-v1.1.4-pre-enhanced
+        RELEASE_TAG: zed-yolo-v1.1.5-pre-enhanced
         ZED_YOLO_RUNNER_CPUS: "16"
         ZED_YOLO_RUNNER_MEMORY_GIB: "32"
         ZED_YOLO_BENCHMARK: "cpu16-cold-target-cold-sccache"

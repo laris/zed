@@ -3327,14 +3327,17 @@ fn respond_err<T: JsonRpcResponse>(responder: Responder<T>, err: acp::Error) {
     responder.respond_with_error(err).log_err();
 }
 
+fn zed_yolo_env_disabled(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "no" | "off" | "deny" | "disabled"
+        )
+    })
+}
+
 fn zed_yolo_acp_enabled() -> bool {
-    matches!(
-        std::env::var("ZED_YOLO").as_deref(),
-        Ok("1") | Ok("true") | Ok("yes") | Ok("on")
-    ) || matches!(
-        std::env::var("ZED_YOLO_APPROVALS").as_deref(),
-        Ok("1") | Ok("true") | Ok("yes") | Ok("on") | Ok("allow") | Ok("always")
-    )
+    !zed_yolo_env_disabled("ZED_YOLO") && !zed_yolo_env_disabled("ZED_YOLO_APPROVALS")
 }
 
 fn zed_yolo_permission_outcome(
