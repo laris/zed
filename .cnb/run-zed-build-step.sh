@@ -7,28 +7,48 @@ run_with_progress() {
   local log_dir="/tmp/zed-yolo-build-logs"
   mkdir -p "$log_dir"
   local log_file="$log_dir/${label}.log"
+  local rc_file="$log_dir/${label}.rc"
   local heartbeat_seconds="${BUILD_HEARTBEAT_SECONDS:-60}"
+  local poll_seconds="${BUILD_LOG_POLL_SECONDS:-5}"
+  local scanned_lines=0
+  rm -f "$rc_file"
+  : > "$log_file"
   printf '\n===== BEGIN %s =====\n' "$label"
   printf 'command:'
   printf ' %s' "$@"
   printf '\nlog: %s\n' "$log_file"
   local start_epoch
   start_epoch=$(date +%s)
-  "$@" >"$log_file" 2>&1 &
-  local cmd_pid=$!
-  tail -n +1 -f "$log_file" &
-  local tail_pid=$!
+
+  set +e
+  (
+    "$@" 2>&1
+    printf '%s\n' "$?" > "$rc_file"
+  ) | tee -a "$log_file" &
+  local pipe_pid=$!
+  set -e
+
   local next_heartbeat=$((start_epoch + heartbeat_seconds))
 
-  while kill -0 "$cmd_pid" 2>/dev/null; do
-    sleep 10
+  while kill -0 "$pipe_pid" 2>/dev/null; do
+    sleep "$poll_seconds"
+    local total_lines
+    total_lines=$(wc -l < "$log_file" | tr -d ' ')
+    if [ "$total_lines" -gt "$scanned_lines" ]; then
+      sed -n "$((scanned_lines + 1)),${total_lines}p" "$log_file" \
+        | grep -aiE '(^error(\[|:)|^fatal:|failed to run custom build command|linking with .* failed|undefined symbols|unable to find|No such file|panicked at|Command exited with non-zero status|exit status: [1-9]|could not compile)' \
+        | tail -40 \
+        | sed 's/^/[error-scan] /' || true
+      scanned_lines="$total_lines"
+    fi
+
     local now
     now=$(date +%s)
     if [ "$now" -ge "$next_heartbeat" ]; then
       local elapsed=$((now - start_epoch))
-      printf '\n[heartbeat] %s running for %ss pid=%s target=%s\n' \
-        "$label" "$elapsed" "$cmd_pid" "${TARGET:-unknown}"
-      ps -o pid,ppid,pcpu,pmem,rss,vsz,etime,comm -p "$cmd_pid" || true
+      printf '\n[heartbeat] %s running for %ss pipeline_pid=%s target=%s log_lines=%s\n' \
+        "$label" "$elapsed" "$pipe_pid" "${TARGET:-unknown}" "$total_lines"
+      ps -o pid,ppid,pcpu,pmem,rss,vsz,etime,comm -p "$pipe_pid" || true
       ps -eo pid,ppid,pcpu,pmem,rss,vsz,etime,comm,args \
         | grep -E 'cargo|rustc|zig|ld64|clang|cc1|sccache|mold|ld' \
         | grep -v grep \
@@ -42,16 +62,31 @@ run_with_progress() {
   done
 
   set +e
-  wait "$cmd_pid"
-  local status=$?
+  wait "$pipe_pid"
+  local pipe_status=$?
   set -e
-  sleep 1
-  kill "$tail_pid" 2>/dev/null || true
-  wait "$tail_pid" 2>/dev/null || true
+  local status="$pipe_status"
+  if [ -s "$rc_file" ]; then
+    status=$(cat "$rc_file")
+  fi
+
+  local total_lines
+  total_lines=$(wc -l < "$log_file" | tr -d ' ')
+  if [ "$total_lines" -gt "$scanned_lines" ]; then
+    sed -n "$((scanned_lines + 1)),${total_lines}p" "$log_file" \
+      | grep -aiE '(^error(\[|:)|^fatal:|failed to run custom build command|linking with .* failed|undefined symbols|unable to find|No such file|panicked at|Command exited with non-zero status|exit status: [1-9]|could not compile)' \
+      | tail -40 \
+      | sed 's/^/[error-scan] /' || true
+  fi
+
   local end_epoch
   end_epoch=$(date +%s)
   printf '===== END %s status=%s elapsed=%ss log=%s =====\n' \
     "$label" "$status" "$((end_epoch - start_epoch))" "$log_file"
+  if [ "$status" -ne 0 ]; then
+    printf '\n===== RECENT LOG TAIL %s =====\n' "$label"
+    tail -200 "$log_file" || true
+  fi
   return "$status"
 }
 
