@@ -139,6 +139,12 @@ package_target() {
   cp "target/${TARGET}/release/zed" "$out_dir/zed"
   cp "target/${TARGET}/release/cli" "$out_dir/cli"
   cp "target/${TARGET}/release/remote_server" "$out_dir/remote_server"
+  if [[ "$TARGET" == *apple-darwin ]]; then
+    python3 script/check-macho-dylibs.py \
+      "target/${TARGET}/release/zed" \
+      "target/${TARGET}/release/cli" \
+      "target/${TARGET}/release/remote_server"
+  fi
   local tarball="${out_dir}.tar.zst"
   tar -C dist -I 'zstd -19 -T0' -cf "$tarball" "$(basename "$out_dir")"
   local sha
@@ -148,6 +154,29 @@ package_target() {
     "${ZED_YOLO_RUNNER_CPUS:-unknown}" "${ZED_YOLO_RUNNER_MEMORY_GIB:-unknown}" "${CARGO_BUILD_JOBS:-default}" "${ZED_YOLO_BENCHMARK:-default}" \
     | tee "$tarball.build.json"
   ls -lh "$tarball" "$tarball.sha256" "$tarball.build.json"
+}
+
+macho_smoke() {
+  local smoke_dir="/tmp/zed-yolo-macho-smoke"
+  rm -rf "$smoke_dir"
+  mkdir -p "$smoke_dir"
+  cat > "$smoke_dir/objc_smoke.c" <<'EOF'
+int main(void) {
+  return 0;
+}
+EOF
+  run_with_progress "macho-linker-dedupe-smoke" \
+    zig cc \
+      -target aarch64-macos \
+      -isysroot "$SDKROOT" \
+      -mmacosx-version-min=13.0 \
+      "$smoke_dir/objc_smoke.c" \
+      -lobjc -l objc \
+      -liconv -l iconv \
+      -framework AppKit -framework Appkit -framework AppKit \
+      -o "$smoke_dir/objc_smoke"
+  file "$smoke_dir/objc_smoke"
+  python3 script/check-macho-dylibs.py "$smoke_dir/objc_smoke"
 }
 
 case "${1:-}" in
@@ -165,8 +194,11 @@ case "${1:-}" in
   stats)
     sccache --show-stats || true
     ;;
+  macho-smoke)
+    macho_smoke
+    ;;
   *)
-    echo "usage: $0 {metadata|build <target> <label> <cargo package args...>|package <target>|stats}" >&2
+    echo "usage: $0 {metadata|build <target> <label> <cargo package args...>|package <target>|stats|macho-smoke}" >&2
     exit 2
     ;;
 esac

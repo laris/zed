@@ -59,6 +59,8 @@ $:
             test -e "$SDKROOT/System/Library/Frameworks/Appkit.framework/Appkit.tbd"
             test -d "$SDKROOT/System/Library/Frameworks/ScreenCaptureKit.framework"
             sccache --show-stats || true
+        - name: macho-linker-dedupe-smoke
+          script: bash .cnb/run-zed-build-step.sh macho-smoke
         - name: generate-licenses
           script: |
             set -eux

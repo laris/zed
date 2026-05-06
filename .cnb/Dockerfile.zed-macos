@@ -31,6 +31,7 @@ RUN set -eux; \
       npm \
       pkg-config \
       protobuf-compiler \
+      python3 \
       sccache \
       time \
       xz-utils \
@@ -90,3 +91,89 @@ RUN set -eux; \
 RUN set -eux; \
     cargo install cargo-about --version 0.8.2 --locked; \
     cargo install cargo-bundle --git https://github.com/zed-industries/cargo-bundle.git --branch zed-deploy
+
+RUN set -eux; \
+    real_zig="$(command -v zig)"; \
+    mv "$real_zig" "${real_zig}.real"; \
+    printf '%s\n' \
+      '#!/usr/bin/env bash' \
+      'set -euo pipefail' \
+      '' \
+      'script_path="$0"' \
+      'case "$script_path" in' \
+      '  /*) ;;' \
+      '  *) script_path="$(command -v -- "$script_path")" ;;' \
+      'esac' \
+      'real_zig="${script_path}.real"' \
+      '' \
+      'if [ "${1:-}" != "cc" ] && [ "${1:-}" != "c++" ]; then' \
+      '  exec "$real_zig" "$@"' \
+      'fi' \
+      '' \
+      'subcommand="$1"' \
+      'shift' \
+      'out=("$subcommand")' \
+      'declare -A seen_libs=()' \
+      'declare -A seen_frameworks=()' \
+      '' \
+      'dedupe_lib() {' \
+      '  case "$1" in' \
+      '    objc|iconv|System|c|m|z|charset|c++)' \
+      '      return 0' \
+      '      ;;' \
+      '    *)' \
+      '      return 1' \
+      '      ;;' \
+      '  esac' \
+      '}' \
+      '' \
+      'while [ "$#" -gt 0 ]; do' \
+      '  arg="$1"' \
+      '  shift' \
+      '  case "$arg" in' \
+      '    -l)' \
+      '      if [ "$#" -gt 0 ] && dedupe_lib "$1"; then' \
+      '        lib="$1"' \
+      '        shift' \
+      '        if [ -z "${seen_libs[$lib]+x}" ]; then' \
+      '          seen_libs[$lib]=1' \
+      '          out+=("-l" "$lib")' \
+      '        fi' \
+      '      else' \
+      '        out+=("$arg")' \
+      '      fi' \
+      '      ;;' \
+      '    -l*)' \
+      '      lib="${arg#-l}"' \
+      '      if dedupe_lib "$lib"; then' \
+      '        if [ -z "${seen_libs[$lib]+x}" ]; then' \
+      '          seen_libs[$lib]=1' \
+      '          out+=("$arg")' \
+      '        fi' \
+      '      else' \
+      '        out+=("$arg")' \
+      '      fi' \
+      '      ;;' \
+      '    -framework)' \
+      '      if [ "$#" -gt 0 ]; then' \
+      '        framework="$1"' \
+      '        framework_key="${framework,,}"' \
+      '        shift' \
+      '        if [ -z "${seen_frameworks[$framework_key]+x}" ]; then' \
+      '          seen_frameworks[$framework_key]=1' \
+      '          out+=("-framework" "$framework")' \
+      '        fi' \
+      '      else' \
+      '        out+=("$arg")' \
+      '      fi' \
+      '      ;;' \
+      '    *)' \
+      '      out+=("$arg")' \
+      '      ;;' \
+      '  esac' \
+      'done' \
+      '' \
+      'exec "$real_zig" "${out[@]}"' \
+      > "$real_zig"; \
+    chmod +x "$real_zig"; \
+    zig version
