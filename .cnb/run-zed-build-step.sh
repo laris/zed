@@ -169,6 +169,8 @@ EOF
     zig cc \
       -target aarch64-macos \
       -isysroot "$SDKROOT" \
+      -L "$SDKROOT/usr/lib" \
+      -Wl,-syslibroot,"$SDKROOT" \
       -mmacosx-version-min=13.0 \
       "$smoke_dir/objc_smoke.c" \
       -lobjc -l objc \
