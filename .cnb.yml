@@ -55,96 +55,34 @@ $:
           script: |
             set -eux
             ALLOW_MISSING_LICENSES=yes script/generate-licenses
-        - name: build-macos-targets
-          script: |
-            set -eux
-            rm -rf dist && mkdir -p dist
-            version=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "zed") | .version' | head -n 1)
-            test -n "$version"
-            build_date=$(date -u +%Y%m%d)
-            git_short=$(git rev-parse --short=8 HEAD)
-            dirty=$([ -z "$(git status --porcelain --untracked-files=no)" ] && echo "" || echo "-dirty")
-            run_with_progress() {
-              label="$1"
-              shift
-              log_dir="/tmp/zed-yolo-build-logs"
-              mkdir -p "$log_dir"
-              log_file="$log_dir/${label}.log"
-              heartbeat_seconds="${BUILD_HEARTBEAT_SECONDS:-60}"
-              printf '\n===== BEGIN %s =====\n' "$label"
-              printf 'command:'
-              printf ' %s' "$@"
-              printf '\nlog: %s\n' "$log_file"
-              start_epoch=$(date +%s)
-              "$@" >"$log_file" 2>&1 &
-              cmd_pid=$!
-              tail -n +1 -f "$log_file" &
-              tail_pid=$!
-              next_heartbeat=$((start_epoch + heartbeat_seconds))
-              while kill -0 "$cmd_pid" 2>/dev/null; do
-                sleep 10
-                now=$(date +%s)
-                if [ "$now" -ge "$next_heartbeat" ]; then
-                  elapsed=$((now - start_epoch))
-                  printf '\n[heartbeat] %s running for %ss pid=%s target=%s\n' \
-                    "$label" "$elapsed" "$cmd_pid" "${target:-unknown}"
-                  ps -o pid,ppid,pcpu,pmem,rss,vsz,etime,comm -p "$cmd_pid" || true
-                  ps -eo pid,ppid,pcpu,pmem,rss,vsz,etime,comm,args \
-                    | grep -E 'cargo|rustc|zig|ld64|clang|cc1|sccache|mold|ld' \
-                    | grep -v grep \
-                    | sort -k3 -nr \
-                    | head -25 || true
-                  df -h /workspace /var/cache/sccache /tmp 2>/dev/null || true
-                  du -sh "target/${target:-}" 2>/dev/null || true
-                  sccache --show-stats 2>/dev/null | sed -n '1,18p' || true
-                  next_heartbeat=$((now + heartbeat_seconds))
-                fi
-              done
-              set +e
-              wait "$cmd_pid"
-              status=$?
-              set -e
-              sleep 1
-              kill "$tail_pid" 2>/dev/null || true
-              wait "$tail_pid" 2>/dev/null || true
-              end_epoch=$(date +%s)
-              printf '===== END %s status=%s elapsed=%ss log=%s =====\n' \
-                "$label" "$status" "$((end_epoch - start_epoch))" "$log_file"
-              return "$status"
-            }
-            build_one() {
-              target="$1"
-              rustup target add "$target"
-              start=$(date +%s)
-              run_with_progress "${target}-zed-cli" \
-                /usr/bin/time -v cargo zigbuild --locked --release \
-                --target "$target" \
-                --features gpui_platform/runtime_shaders \
-                --package zed --package cli
-              run_with_progress "${target}-remote-server" \
-                /usr/bin/time -v cargo zigbuild --locked --release \
-                --target "$target" \
-                --features gpui_platform/runtime_shaders \
-                --package remote_server
-              end=$(date +%s)
-              out_dir="dist/zed-yolo-v${version}-${target}-${build_date}-g${git_short}${dirty}"
-              mkdir -p "$out_dir"
-              cp "target/${target}/release/zed" "$out_dir/zed"
-              cp "target/${target}/release/cli" "$out_dir/cli"
-              cp "target/${target}/release/remote_server" "$out_dir/remote_server"
-              tarball="${out_dir}.tar.zst"
-              tar -C dist -I 'zstd -19 -T0' -cf "$tarball" "$(basename "$out_dir")"
-              sha256sum "$tarball" | tee "$tarball.sha256"
-              printf '{"package":"zed-yolo","version":"%s","target":"%s","filename":"%s","sha256":"%s","seconds":%s,"commit":"%s","build":"%s","date":"%s","runtime_shaders":true}\n' \
-                "$version" "$target" "$(basename "$tarball")" "$(sha256sum "$tarball" | awk '{print $1}')" "$((end - start))" "$CNB_COMMIT" "$CNB_BUILD_ID" "$build_date" \
-                | tee "$tarball.build.json"
-            }
-            for target in \
-              aarch64-apple-darwin \
-              x86_64-apple-darwin; do
-              build_one "$target"
-            done
-            sccache --show-stats || true
+        - name: init-release-metadata
+          script: bash .cnb/run-zed-build-step.sh metadata
+        - name: build-aarch64-apple-darwin-zed-cli
+          script: >
+            bash .cnb/run-zed-build-step.sh build
+            aarch64-apple-darwin zed-cli
+            --package zed --package cli
+        - name: build-aarch64-apple-darwin-remote-server
+          script: >
+            bash .cnb/run-zed-build-step.sh build
+            aarch64-apple-darwin remote-server
+            --package remote_server
+        - name: package-aarch64-apple-darwin
+          script: bash .cnb/run-zed-build-step.sh package aarch64-apple-darwin
+        - name: build-x86_64-apple-darwin-zed-cli
+          script: >
+            bash .cnb/run-zed-build-step.sh build
+            x86_64-apple-darwin zed-cli
+            --package zed --package cli
+        - name: build-x86_64-apple-darwin-remote-server
+          script: >
+            bash .cnb/run-zed-build-step.sh build
+            x86_64-apple-darwin remote-server
+            --package remote_server
+        - name: package-x86_64-apple-darwin
+          script: bash .cnb/run-zed-build-step.sh package x86_64-apple-darwin
+        - name: build-cache-stats
+          script: bash .cnb/run-zed-build-step.sh stats
         - name: upload-workspace-artifacts
           image: cnbcool/attachments:latest
           settings:
