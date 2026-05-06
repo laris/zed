@@ -283,6 +283,29 @@ function sign_app_binaries() {
     fi
 }
 
+function copy_enhanced_remote_servers() {
+    local resource_dir="${app_path}/Contents/Resources/remote_servers"
+    mkdir -p "${resource_dir}"
+    shopt -s nullglob
+    local copied=false
+    local remote_server_assets=(
+        dist/zed-remote-server-linux-*.gz
+        target/zed-remote-server-linux-*.gz
+    )
+    for asset in "${remote_server_assets[@]}"; do
+        cp "${asset}" "${resource_dir}/$(basename "${asset}")"
+        copied=true
+    done
+    shopt -u nullglob
+
+    if [[ "${copied}" = true ]]; then
+        echo "Copied enhanced remote server assets into ${resource_dir}"
+        ls -lh "${resource_dir}"/zed-remote-server-linux-*.gz
+    else
+        echo "No enhanced Linux remote server assets found to bundle"
+    fi
+}
+
 function sign_binary() {
     local binary_path=$1
 
@@ -334,6 +357,7 @@ upload_debug_symbols
 
 cp target/${target_triple}/${target_dir}/zed "${app_path}/Contents/MacOS/zed"
 cp target/${target_triple}/${target_dir}/cli "${app_path}/Contents/MacOS/cli"
+copy_enhanced_remote_servers
 sign_app_binaries
 
 sign_binary "target/$target_triple/release/remote_server"

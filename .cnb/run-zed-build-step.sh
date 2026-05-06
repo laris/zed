@@ -176,6 +176,19 @@ package_target() {
       macho_inputs+=("$out_dir/$bin")
     done
     python3 script/check-macho-dylibs.py "${macho_inputs[@]}"
+  elif [[ "$label" == "remote-server" && "$TARGET" == x86_64-unknown-linux-* ]]; then
+    local libc
+    case "$TARGET" in
+      *-gnu) libc=gnu ;;
+      *-musl) libc=musl ;;
+      *)
+        echo "unsupported linux remote_server target for enhanced asset: $TARGET" >&2
+        exit 2
+        ;;
+    esac
+    local remote_asset="dist/zed-remote-server-linux-x86_64-${libc}.gz"
+    gzip -f --stdout --best "$out_dir/remote_server" > "$remote_asset"
+    sha256sum "$remote_asset" | tee "$remote_asset.sha256"
   fi
   local tarball="${out_dir}.tar.zst"
   tar -C dist -I 'zstd -19 -T0' -cf "$tarball" "$(basename "$out_dir")"

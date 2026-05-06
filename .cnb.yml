@@ -106,6 +106,8 @@ $:
               - "dist/zed-yolo-v*.tar.zst"
               - "dist/zed-yolo-v*.tar.zst.sha256"
               - "dist/zed-yolo-v*.tar.zst.build.json"
+              - "dist/zed-remote-server-linux-x86_64-*.gz"
+              - "dist/zed-remote-server-linux-x86_64-*.gz.sha256"
         - name: cleanup-workspace-dist
           script: |
             set -eux
