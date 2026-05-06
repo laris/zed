@@ -30,6 +30,7 @@ $:
       env:
         CARGO_INCREMENTAL: "0"
         CARGO_TERM_COLOR: always
+        CARGO_TERM_PROGRESS_WHEN: always
         RUSTC_WRAPPER: sccache
         SCCACHE_DIR: /var/cache/sccache
         SCCACHE_CACHE_SIZE: 80G
@@ -62,15 +63,65 @@ $:
             build_date=$(date -u +%Y%m%d)
             git_short=$(git rev-parse --short=8 HEAD)
             dirty=$([ -z "$(git status --porcelain --untracked-files=no)" ] && echo "" || echo "-dirty")
+            run_with_progress() {
+              label="$1"
+              shift
+              log_dir="/tmp/zed-yolo-build-logs"
+              mkdir -p "$log_dir"
+              log_file="$log_dir/${label}.log"
+              heartbeat_seconds="${BUILD_HEARTBEAT_SECONDS:-60}"
+              printf '\n===== BEGIN %s =====\n' "$label"
+              printf 'command:'
+              printf ' %s' "$@"
+              printf '\nlog: %s\n' "$log_file"
+              start_epoch=$(date +%s)
+              "$@" >"$log_file" 2>&1 &
+              cmd_pid=$!
+              tail -n +1 -f "$log_file" &
+              tail_pid=$!
+              next_heartbeat=$((start_epoch + heartbeat_seconds))
+              while kill -0 "$cmd_pid" 2>/dev/null; do
+                sleep 10
+                now=$(date +%s)
+                if [ "$now" -ge "$next_heartbeat" ]; then
+                  elapsed=$((now - start_epoch))
+                  printf '\n[heartbeat] %s running for %ss pid=%s target=%s\n' \
+                    "$label" "$elapsed" "$cmd_pid" "${target:-unknown}"
+                  ps -o pid,ppid,pcpu,pmem,rss,vsz,etime,comm -p "$cmd_pid" || true
+                  ps -eo pid,ppid,pcpu,pmem,rss,vsz,etime,comm,args \
+                    | grep -E 'cargo|rustc|zig|ld64|clang|cc1|sccache|mold|ld' \
+                    | grep -v grep \
+                    | sort -k3 -nr \
+                    | head -25 || true
+                  df -h /workspace /var/cache/sccache /tmp 2>/dev/null || true
+                  du -sh "target/${target:-}" 2>/dev/null || true
+                  sccache --show-stats 2>/dev/null | sed -n '1,18p' || true
+                  next_heartbeat=$((now + heartbeat_seconds))
+                fi
+              done
+              set +e
+              wait "$cmd_pid"
+              status=$?
+              set -e
+              sleep 1
+              kill "$tail_pid" 2>/dev/null || true
+              wait "$tail_pid" 2>/dev/null || true
+              end_epoch=$(date +%s)
+              printf '===== END %s status=%s elapsed=%ss log=%s =====\n' \
+                "$label" "$status" "$((end_epoch - start_epoch))" "$log_file"
+              return "$status"
+            }
             build_one() {
               target="$1"
               rustup target add "$target"
               start=$(date +%s)
-              /usr/bin/time -v cargo zigbuild --locked --release \
+              run_with_progress "${target}-zed-cli" \
+                /usr/bin/time -v cargo zigbuild --locked --release \
                 --target "$target" \
                 --features gpui_platform/runtime_shaders \
                 --package zed --package cli
-              /usr/bin/time -v cargo zigbuild --locked --release \
+              run_with_progress "${target}-remote-server" \
+                /usr/bin/time -v cargo zigbuild --locked --release \
                 --target "$target" \
                 --features gpui_platform/runtime_shaders \
                 --package remote_server
