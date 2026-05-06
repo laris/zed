@@ -8,6 +8,7 @@ use agent_client_protocol::schema::{
     v1::{self as acp, ErrorCode},
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, JsonRpcResponse, Lines, Responder};
+use agent_settings::{AgentSettings, EnhancedYoloSettings};
 use anyhow::anyhow;
 use async_channel;
 use collections::{HashMap, HashSet};
@@ -36,6 +37,7 @@ use util::process::Child;
 
 use anyhow::{Context as _, Result};
 use gpui::{App, AppContext as _, AsyncApp, Entity, SharedString, Subscription, Task, WeakEntity};
+use settings::Settings as _;
 
 use acp_thread::{AcpThread, AuthRequired, LoadError, TerminalProviderEvent};
 use terminal::TerminalBuilder;
@@ -804,12 +806,13 @@ impl AcpConnection {
     pub async fn stdio(
         agent_id: AgentId,
         project: Entity<Project>,
-        command: AgentServerCommand,
+        mut command: AgentServerCommand,
         agent_server_store: WeakEntity<AgentServerStore>,
         default_mode: Option<acp::SessionModeId>,
         default_config_options: HashMap<String, AgentConfigOptionValue>,
         cx: &mut AsyncApp,
     ) -> Result<Self> {
+        apply_enhanced_yolo_agent_env(&mut command, cx);
         let root_dir = project.read_with(cx, |project, cx| {
             project
                 .default_path_list(cx)
@@ -4508,6 +4511,82 @@ fn respond_result<T: JsonRpcResponse>(responder: Responder<T>, result: Result<T,
     }
 }
 
+fn zed_yolo_env_disabled(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "no" | "off" | "deny" | "disabled"
+        )
+    })
+}
+
+fn zed_yolo_env_enabled(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on" | "allow" | "enabled"
+        )
+    })
+}
+
+fn enhanced_yolo_settings(cx: &mut AsyncApp) -> EnhancedYoloSettings {
+    cx.update(|cx| AgentSettings::get_global(cx).enhanced_yolo)
+}
+
+fn zed_yolo_acp_enabled(cx: &mut AsyncApp) -> bool {
+    if zed_yolo_env_disabled("ZED_YOLO") || zed_yolo_env_disabled("ZED_YOLO_APPROVALS") {
+        return false;
+    }
+    if zed_yolo_env_enabled("ZED_YOLO") || zed_yolo_env_enabled("ZED_YOLO_APPROVALS") {
+        return true;
+    }
+
+    let settings = enhanced_yolo_settings(cx);
+    settings.enabled && settings.auto_approve_acp
+}
+
+fn apply_enhanced_yolo_agent_env(command: &mut AgentServerCommand, cx: &mut AsyncApp) {
+    let settings = enhanced_yolo_settings(cx);
+    if !settings.enabled || !settings.inject_agent_env {
+        return;
+    }
+
+    let env = command.env.get_or_insert_with(HashMap::default);
+    env.entry("ZED_YOLO".to_string())
+        .or_insert_with(|| "1".to_string());
+    env.entry("ZED_YOLO_APPROVALS".to_string())
+        .or_insert_with(|| "1".to_string());
+    if settings.disable_agent_sandbox {
+        env.entry("ZED_YOLO_SANDBOX".to_string())
+            .or_insert_with(|| "1".to_string());
+    }
+}
+
+fn zed_yolo_permission_outcome(
+    options: &[acp::PermissionOption],
+) -> Option<acp_thread::RequestPermissionOutcome> {
+    let option = options
+        .iter()
+        .find(|option| option.kind == acp::PermissionOptionKind::AllowAlways)
+        .or_else(|| {
+            options
+                .iter()
+                .find(|option| option.kind == acp::PermissionOptionKind::AllowOnce)
+        })
+        .or_else(|| {
+            options.iter().find(|option| {
+                !matches!(
+                    option.kind,
+                    acp::PermissionOptionKind::RejectOnce | acp::PermissionOptionKind::RejectAlways
+                )
+            })
+        })?;
+
+    Some(acp_thread::RequestPermissionOutcome::Selected(
+        acp_thread::SelectedPermissionOutcome::new(option.option_id.clone(), option.kind),
+    ))
+}
+
 fn handle_request_permission(
     args: acp::RequestPermissionRequest,
     responder: Responder<acp::RequestPermissionResponse>,
@@ -4518,6 +4597,18 @@ fn handle_request_permission(
         Ok(t) => t,
         Err(e) => return respond_err(responder, e),
     };
+
+    if zed_yolo_acp_enabled(cx) {
+        if let Some(outcome) = zed_yolo_permission_outcome(&args.options) {
+            log::info!("enhanced_yolo auto-approved ACP permission request");
+            responder
+                .respond(acp::RequestPermissionResponse::new(outcome.into()))
+                .log_err();
+            return;
+        }
+
+        log::warn!("enhanced_yolo was enabled, but the ACP request had no allow option");
+    }
 
     let cancellation = responder.cancellation();
     let tool_call_id = args.tool_call.tool_call_id.clone();
