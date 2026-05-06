@@ -211,6 +211,11 @@ pub struct AgentSettingsContent {
     /// `always_confirm`) match against the tool's text input (command, path,
     /// URL, etc.).
     pub tool_permissions: Option<ToolPermissionsContent>,
+    /// Enhanced fork controls for ACP agent approval behavior.
+    ///
+    /// Default: enabled, auto-approve ACP requests, inject YOLO env into
+    /// agent launches, keep the agent sandbox enabled.
+    pub enhanced_yolo: Option<EnhancedYoloSettingsContent>,
 }
 
 impl AgentSettingsContent {
@@ -565,6 +570,30 @@ pub enum CustomAgentServerSettings {
         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
         favorite_config_option_values: HashMap<String, Vec<String>>,
     },
+}
+
+#[with_fallible_options]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]
+pub struct EnhancedYoloSettingsContent {
+    /// Master switch for the enhanced YOLO policy.
+    ///
+    /// Default: true
+    pub enabled: Option<bool>,
+    /// Auto-select an allow option for ACP `RequestPermission` prompts.
+    ///
+    /// Default: true
+    pub auto_approve_acp: Option<bool>,
+    /// Inject `ZED_YOLO` / `ZED_YOLO_APPROVALS` into ACP agent processes.
+    /// This applies to both local and remote projects because Zed forwards
+    /// the command environment across the remote command boundary.
+    ///
+    /// Default: true
+    pub inject_agent_env: Option<bool>,
+    /// Also inject `ZED_YOLO_SANDBOX=1` for adapters that support disabling
+    /// their execution sandbox. This is intentionally off by default.
+    ///
+    /// Default: false
+    pub disable_agent_sandbox: Option<bool>,
 }
 
 #[with_fallible_options]
