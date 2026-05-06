@@ -64,9 +64,8 @@ smallvec.workspace = true
 strum.workspace = true
 uuid.workspace = true
 
-[target.'cfg(target_os = "macos")'.build-dependencies]
+[build-dependencies]
 cbindgen.workspace = true
-gpui.workspace = true
 
 # When this crate is itself being tested (cargo test -p gpui_macos), its own
 # cfg(test) flag enables impls of test-only traits like PlatformHeadlessRenderer
