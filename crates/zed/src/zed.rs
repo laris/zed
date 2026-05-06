@@ -1399,6 +1399,15 @@ fn open_about_window(cx: &mut App) {
     }
 
     impl AboutWindow {
+        fn title_message(&self) -> SharedString {
+            self.enhanced_label
+                .as_ref()
+                .map(|enhanced_label| {
+                    format!("{} {}", self.message.as_str(), enhanced_label.as_str()).into()
+                })
+                .unwrap_or_else(|| self.message.clone())
+        }
+
         fn new(cx: &mut Context<Self>) -> Self {
             let release_channel = ReleaseChannel::global(cx);
             let release_channel_name = release_channel.display_name();
@@ -1479,15 +1488,7 @@ fn open_about_window(cx: &mut App) {
                             .gap_2()
                             .items_center()
                             .child(img(self.app_icon.clone()).size_16().flex_none())
-                            .child(Headline::new(self.message.clone()))
-                            .when_some(self.enhanced_label.clone(), |this, enhanced_label| {
-                                this.child(
-                                    Label::new("Build")
-                                        .color(Color::Muted)
-                                        .size(LabelSize::XSmall),
-                                )
-                                .child(Label::new(enhanced_label).size(LabelSize::Small))
-                            })
+                            .child(Headline::new(self.title_message()))
                             .when_some(self.commit.clone(), |this, commit| {
                                 this.child(
                                     Label::new("Commit")
