@@ -74,7 +74,7 @@ $:
             aarch64-apple-darwin zed-cli
             --package zed --package cli
         - name: package-aarch64-apple-darwin-zed-cli
-          script: bash .cnb/run-zed-build-step.sh package aarch64-apple-darwin
+          script: bash .cnb/run-zed-build-step.sh package aarch64-apple-darwin zed-cli
 
         # Default client/app target is aarch64 macOS only. Keep x86_64 macOS
         # and Linux app builds disabled unless we explicitly need them.
@@ -88,14 +88,14 @@ $:
             x86_64-unknown-linux-gnu remote-server
             --package remote_server
         - name: package-x86_64-unknown-linux-gnu-remote-server
-          script: bash .cnb/run-zed-build-step.sh package x86_64-unknown-linux-gnu
+          script: bash .cnb/run-zed-build-step.sh package x86_64-unknown-linux-gnu remote-server
         - name: build-x86_64-unknown-linux-musl-remote-server
           script: >
             bash .cnb/run-zed-build-step.sh build
             x86_64-unknown-linux-musl remote-server
             --package remote_server
         - name: package-x86_64-unknown-linux-musl-remote-server
-          script: bash .cnb/run-zed-build-step.sh package x86_64-unknown-linux-musl
+          script: bash .cnb/run-zed-build-step.sh package x86_64-unknown-linux-musl remote-server
         - name: build-cache-stats
           script: bash .cnb/run-zed-build-step.sh stats
         - name: upload-workspace-artifacts

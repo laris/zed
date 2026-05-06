@@ -133,16 +133,34 @@ build() {
 
 package_target() {
   TARGET="$1"
+  local label="${2:-all}"
   source dist/build.env
   local start
   start=$(cat "dist/${TARGET}.start")
   local end
   end=$(date +%s)
   local out_dir="dist/zed-yolo-v${VERSION}-${TARGET}-${BUILD_DATE}-g${GIT_SHORT}${DIRTY}"
+  rm -rf "$out_dir"
   mkdir -p "$out_dir"
+  local expected_binaries=()
+  case "$label" in
+    zed-cli)
+      expected_binaries=(zed cli)
+      ;;
+    remote-server)
+      expected_binaries=(remote_server)
+      ;;
+    all)
+      expected_binaries=(zed cli remote_server)
+      ;;
+    *)
+      echo "unknown package label: ${label}" >&2
+      exit 2
+      ;;
+  esac
   local binaries=()
   local bin
-  for bin in zed cli remote_server; do
+  for bin in "${expected_binaries[@]}"; do
     if [ -f "target/${TARGET}/release/${bin}" ]; then
       cp "target/${TARGET}/release/${bin}" "$out_dir/${bin}"
       binaries+=("$bin")
