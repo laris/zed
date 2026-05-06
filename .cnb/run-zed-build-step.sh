@@ -170,6 +170,7 @@ EOF
       -target aarch64-macos \
       -isysroot "$SDKROOT" \
       -L "$SDKROOT/usr/lib" \
+      -F "$SDKROOT/System/Library/Frameworks" \
       -mmacosx-version-min=13.0 \
       "$smoke_dir/objc_smoke.c" \
       -lobjc -l objc \
