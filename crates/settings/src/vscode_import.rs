@@ -1035,6 +1035,7 @@ impl VsCodeSettings {
             pane_split_direction_horizontal: None,
             pane_split_direction_vertical: None,
             resize_all_panels_in_dock: None,
+            project_manager: None,
             restore_on_file_reopen: self.read_bool("workbench.editor.restoreViewState"),
             restore_on_startup: None,
             window_decorations: None,
