@@ -72,6 +72,7 @@ $:
                 --package zed --package cli
               /usr/bin/time -v cargo zigbuild --locked --release \
                 --target "$target" \
+                --features gpui_platform/runtime_shaders \
                 --package remote_server
               end=$(date +%s)
               out_dir="dist/zed-yolo-v${version}-${target}-${build_date}-g${git_short}${dirty}"
