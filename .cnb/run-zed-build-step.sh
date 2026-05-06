@@ -143,8 +143,9 @@ package_target() {
   tar -C dist -I 'zstd -19 -T0' -cf "$tarball" "$(basename "$out_dir")"
   local sha
   sha=$(sha256sum "$tarball" | tee "$tarball.sha256" | awk '{print $1}')
-  printf '{"package":"zed-yolo","version":"%s","target":"%s","filename":"%s","sha256":"%s","seconds":%s,"commit":"%s","build":"%s","date":"%s","runtime_shaders":true}\n' \
+  printf '{"package":"zed-yolo","version":"%s","target":"%s","filename":"%s","sha256":"%s","seconds":%s,"commit":"%s","build":"%s","date":"%s","runtime_shaders":true,"runner_cpus":"%s","runner_memory_gib":"%s","cargo_build_jobs":"%s","benchmark":"%s"}\n' \
     "$VERSION" "$TARGET" "$(basename "$tarball")" "$sha" "$((end - start))" "$CNB_COMMIT" "$CNB_BUILD_ID" "$BUILD_DATE" \
+    "${ZED_YOLO_RUNNER_CPUS:-unknown}" "${ZED_YOLO_RUNNER_MEMORY_GIB:-unknown}" "${CARGO_BUILD_JOBS:-default}" "${ZED_YOLO_BENCHMARK:-default}" \
     | tee "$tarball.build.json"
   ls -lh "$tarball" "$tarball.sha256" "$tarball.build.json"
 }
