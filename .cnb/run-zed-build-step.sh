@@ -115,6 +115,10 @@ build() {
   TARGET="$1"
   local label="$2"
   shift 2
+  local feature_args=()
+  if [[ "$label" == "zed-cli" || "$label" == "all" ]]; then
+    feature_args=(--features gpui_platform/runtime_shaders)
+  fi
   mkdir -p dist
   if [ ! -e "dist/${TARGET}.start" ]; then
     date +%s > "dist/${TARGET}.start"
@@ -123,7 +127,7 @@ build() {
   run_with_progress "${TARGET}-${label}" \
     /usr/bin/time -v cargo zigbuild --locked --release \
       --target "$TARGET" \
-      --features gpui_platform/runtime_shaders \
+      "${feature_args[@]}" \
       "$@"
 }
 
@@ -136,21 +140,38 @@ package_target() {
   end=$(date +%s)
   local out_dir="dist/zed-yolo-v${VERSION}-${TARGET}-${BUILD_DATE}-g${GIT_SHORT}${DIRTY}"
   mkdir -p "$out_dir"
-  cp "target/${TARGET}/release/zed" "$out_dir/zed"
-  cp "target/${TARGET}/release/cli" "$out_dir/cli"
-  cp "target/${TARGET}/release/remote_server" "$out_dir/remote_server"
+  local binaries=()
+  local bin
+  for bin in zed cli remote_server; do
+    if [ -f "target/${TARGET}/release/${bin}" ]; then
+      cp "target/${TARGET}/release/${bin}" "$out_dir/${bin}"
+      binaries+=("$bin")
+    fi
+  done
+  if [ "${#binaries[@]}" -eq 0 ]; then
+    echo "no release binaries found for ${TARGET}" >&2
+    exit 1
+  fi
   if [[ "$TARGET" == *apple-darwin ]]; then
-    python3 script/check-macho-dylibs.py \
-      "target/${TARGET}/release/zed" \
-      "target/${TARGET}/release/cli" \
-      "target/${TARGET}/release/remote_server"
+    local macho_inputs=()
+    for bin in "${binaries[@]}"; do
+      macho_inputs+=("$out_dir/$bin")
+    done
+    python3 script/check-macho-dylibs.py "${macho_inputs[@]}"
   fi
   local tarball="${out_dir}.tar.zst"
   tar -C dist -I 'zstd -19 -T0' -cf "$tarball" "$(basename "$out_dir")"
   local sha
   sha=$(sha256sum "$tarball" | tee "$tarball.sha256" | awk '{print $1}')
-  printf '{"package":"zed-yolo","version":"%s","target":"%s","filename":"%s","sha256":"%s","seconds":%s,"commit":"%s","build":"%s","date":"%s","runtime_shaders":true,"runner_cpus":"%s","runner_memory_gib":"%s","cargo_build_jobs":"%s","benchmark":"%s"}\n' \
+  local runtime_shaders=false
+  if [ -f "$out_dir/zed" ] || [ -f "$out_dir/cli" ]; then
+    runtime_shaders=true
+  fi
+  local binaries_csv
+  binaries_csv=$(IFS=,; printf '%s' "${binaries[*]}")
+  printf '{"package":"zed-yolo","version":"%s","target":"%s","filename":"%s","sha256":"%s","seconds":%s,"commit":"%s","build":"%s","date":"%s","runtime_shaders":%s,"binaries":"%s","runner_cpus":"%s","runner_memory_gib":"%s","cargo_build_jobs":"%s","benchmark":"%s"}\n' \
     "$VERSION" "$TARGET" "$(basename "$tarball")" "$sha" "$((end - start))" "$CNB_COMMIT" "$CNB_BUILD_ID" "$BUILD_DATE" \
+    "$runtime_shaders" "$binaries_csv" \
     "${ZED_YOLO_RUNNER_CPUS:-unknown}" "${ZED_YOLO_RUNNER_MEMORY_GIB:-unknown}" "${CARGO_BUILD_JOBS:-default}" "${ZED_YOLO_BENCHMARK:-default}" \
     | tee "$tarball.build.json"
   ls -lh "$tarball" "$tarball.sha256" "$tarball.build.json"
