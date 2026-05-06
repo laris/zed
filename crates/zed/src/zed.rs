@@ -1372,16 +1372,28 @@ fn open_about_window(cx: &mut App) {
     }
 
     fn enhanced_build_label() -> Option<String> {
+        let explicit_off = |value: &str| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "no" | "off" | "disabled"
+            )
+        };
+        if env::var("ZED_ENHANCED").is_ok_and(|value| explicit_off(&value)) {
+            return None;
+        }
+
         let label = env::var("ZED_ENHANCED_LABEL")
             .ok()
             .or_else(|| option_env!("ZED_ENHANCED_LABEL").map(str::to_owned))
             .or_else(|| match option_env!("ZED_ENHANCED") {
                 Some("1") | Some("true") | Some("yes") | Some("on") => Some("Enhanced".to_owned()),
                 Some(label) if !label.trim().is_empty() => Some(label.to_owned()),
-                _ => None,
-            })?;
+                _ => Some("Enhanced".to_owned()),
+            })
+            .unwrap_or_else(|| "Enhanced".to_owned());
         match label.trim() {
-            "" | "0" | "false" | "no" | "off" => None,
+            trimmed if explicit_off(trimmed) => None,
+            "" => Some("Enhanced".to_owned()),
             trimmed => Some(trimmed.to_owned()),
         }
     }
