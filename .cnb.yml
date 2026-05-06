@@ -7,7 +7,7 @@ $:
   vscode:
     - name: zed-yolo-macos-compile
       runner:
-        cpus: 64
+        cpus: 16
         tags: cnb:arch:amd64
       docker:
         build:
@@ -20,8 +20,8 @@ $:
         volumes:
           - zed-yolo-cargo-registry:/usr/local/cargo/registry:rw
           - zed-yolo-cargo-git:/usr/local/cargo/git:rw
-          - zed-yolo-sccache:/var/cache/sccache:rw
-          - zed-yolo-target:/workspace/target:rw
+          - zed-yolo-sccache-cpu16-cold:/var/cache/sccache:rw
+          - zed-yolo-target-cpu16-cold:/workspace/target:rw
       services:
         - name: vscode
           options:
@@ -34,16 +34,22 @@ $:
         CARGO_TERM_PROGRESS_WIDTH: "120"
         BUILD_LOG_POLL_SECONDS: "5"
         BUILD_HEARTBEAT_SECONDS: "60"
+        CARGO_BUILD_JOBS: "16"
         RUSTC_WRAPPER: sccache
         SCCACHE_DIR: /var/cache/sccache
         SCCACHE_CACHE_SIZE: 80G
         RELEASE_TAG: zed-yolo-v1.1.4-pre-enhanced
+        ZED_YOLO_RUNNER_CPUS: "16"
+        ZED_YOLO_RUNNER_MEMORY_GIB: "32"
+        ZED_YOLO_BENCHMARK: "cpu16-cold-target-cold-sccache"
       stages:
         - name: toolchain
           script: |
             set -eux
             rustc -Vv
             cargo -V
+            nproc
+            free -h
             cargo zigbuild --help >/dev/null
             zig version
             printf 'SDKROOT=%s\n' "${SDKROOT:-}"
