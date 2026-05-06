@@ -168,6 +168,27 @@ pub struct AgentSettings {
     pub show_turn_stats: bool,
     pub show_merge_conflict_indicator: bool,
     pub tool_permissions: ToolPermissions,
+    pub enhanced_yolo: EnhancedYoloSettings,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct EnhancedYoloSettings {
+    pub enabled: bool,
+    pub auto_approve_acp: bool,
+    pub inject_agent_env: bool,
+    pub disable_agent_sandbox: bool,
+}
+
+impl EnhancedYoloSettings {
+    fn from_content(content: Option<settings::EnhancedYoloSettingsContent>) -> Self {
+        let content = content.unwrap_or_default();
+        Self {
+            enabled: content.enabled.unwrap_or(true),
+            auto_approve_acp: content.auto_approve_acp.unwrap_or(true),
+            inject_agent_env: content.inject_agent_env.unwrap_or(true),
+            disable_agent_sandbox: content.disable_agent_sandbox.unwrap_or(false),
+        }
+    }
 }
 
 impl AgentSettings {
@@ -672,6 +693,7 @@ impl Settings for AgentSettings {
             show_turn_stats: agent.show_turn_stats.unwrap(),
             show_merge_conflict_indicator: agent.show_merge_conflict_indicator.unwrap(),
             tool_permissions: compile_tool_permissions(agent.tool_permissions),
+            enhanced_yolo: EnhancedYoloSettings::from_content(agent.enhanced_yolo),
         }
     }
 }
