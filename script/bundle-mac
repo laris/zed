@@ -96,12 +96,12 @@ if ! xcrun --find metal >/dev/null 2>&1; then
 fi
 
 echo "Compiling zed binaries"
-cargo build ${build_flag} --package zed --package cli --target $target_triple "${zed_features[@]}"
+cargo build ${build_flag} --package zed --package cli --target $target_triple ${zed_features[@]+"${zed_features[@]}"}
 # Build remote_server in separate invocation to prevent feature unification from other crates
 # from influencing dynamic libraries required by it. The remote_server depends
 # on gpui_platform (which pulls in gpui_macos on Darwin), so it needs the same
 # shader feature when the host has no `metal` compiler.
-cargo build ${build_flag} --package remote_server --target $target_triple "${zed_features[@]}"
+cargo build ${build_flag} --package remote_server --target $target_triple ${zed_features[@]+"${zed_features[@]}"}
 
 echo "Creating application bundle"
 pushd crates/zed
@@ -111,7 +111,7 @@ sed \
     "s/package.metadata.bundle-${channel}/package.metadata.bundle/" \
     Cargo.toml
 
-app_path=$(cargo bundle ${build_flag} --target $target_triple --select-workspace-root "${zed_features[@]}" | xargs)
+app_path=$(cargo bundle ${build_flag} --target $target_triple --select-workspace-root ${zed_features[@]+"${zed_features[@]}"} | xargs)
 
 mv Cargo.toml.backup Cargo.toml
 popd
