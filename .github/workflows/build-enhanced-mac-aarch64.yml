@@ -1,0 +1,112 @@
+name: Build enhanced macOS aarch64
+
+on:
+  push:
+    branches: [enhanced]
+    tags: ['enhanced/v*']
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Build profile
+        required: true
+        default: release
+        type: choice
+        options:
+          - release
+          - dev
+
+# One in-progress build per ref; cancel stale runs.
+concurrency:
+  group: build-mac-aarch64-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: always
+      ZED_BUNDLE: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain & host
+        run: |
+          rustc -Vv
+          cargo -V
+          sw_vers
+          uname -m
+          xcode-select -p
+          xcrun --find metal || true
+
+      - name: Add Rust target
+        run: rustup target add aarch64-apple-darwin
+
+      - name: Cache cargo registry / target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: mac-aarch64-${{ github.event.inputs.profile || 'release' }}
+          cache-on-failure: 'true'
+
+      - name: Setup Node (for dmg-license)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dmg-license
+        run: npm install --global dmg-license minimist
+
+      - name: Bundle .app
+        id: bundle
+        run: |
+          set -euo pipefail
+          PROFILE="${{ github.event.inputs.profile || 'release' }}"
+          if [ "$PROFILE" = "dev" ]; then
+            ./script/bundle-mac -d aarch64-apple-darwin
+            echo "app_path=target/aarch64-apple-darwin/debug/bundle/osx/Zed Preview.app" >> "$GITHUB_OUTPUT"
+            echo "dmg_path=" >> "$GITHUB_OUTPUT"
+          else
+            ./script/bundle-mac aarch64-apple-darwin
+            echo "app_path=target/aarch64-apple-darwin/release/dmg/Zed Preview.app" >> "$GITHUB_OUTPUT"
+            echo "dmg_path=target/aarch64-apple-darwin/release/Zed-aarch64.dmg" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify bundle
+        run: |
+          APP="${{ steps.bundle.outputs.app_path }}"
+          test -d "$APP"
+          file "$APP/Contents/MacOS/zed"
+          codesign -dvv "$APP" 2>&1 | head -7
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist"
+          du -sh "$APP"
+
+      # Archive the .app as a tarball so macOS metadata (resource forks, ad-hoc
+      # signature, symlinks) round-trip through GitHub's artifact storage.
+      - name: Tar .app
+        run: |
+          APP="${{ steps.bundle.outputs.app_path }}"
+          OUT="Zed-Preview-aarch64-${{ github.event.inputs.profile || 'release' }}.tar.gz"
+          tar -C "$(dirname "$APP")" -czf "$OUT" "$(basename "$APP")"
+          ls -lh "$OUT"
+          shasum -a 256 "$OUT" > "$OUT.sha256"
+
+      - name: Upload .app tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: zed-preview-aarch64-${{ github.event.inputs.profile || 'release' }}-app
+          path: |
+            Zed-Preview-aarch64-*.tar.gz
+            Zed-Preview-aarch64-*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload DMG
+        if: ${{ steps.bundle.outputs.dmg_path != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: zed-preview-aarch64-${{ github.event.inputs.profile || 'release' }}-dmg
+          path: ${{ steps.bundle.outputs.dmg_path }}
+          if-no-files-found: error
+          retention-days: 14
