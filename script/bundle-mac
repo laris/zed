@@ -303,7 +303,7 @@ function copy_enhanced_remote_servers() {
         dist/zed-remote-server-linux-*.gz
         target/zed-remote-server-linux-*.gz
     )
-    for asset in "${remote_server_assets[@]}"; do
+    for asset in ${remote_server_assets[@]+"${remote_server_assets[@]}"}; do
         cp "${asset}" "${resource_dir}/$(basename "${asset}")"
         copied=true
     done
