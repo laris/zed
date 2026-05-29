@@ -90,7 +90,7 @@ earlier ones. The chronological order is:
 | 1 | `Add config-backed enhanced YOLO runtime`                        | `agent_servers`, `agent_settings`, `auto_update`, `settings_content` | Adds `EnhancedYoloSettings` to `AgentSettings`; opt-out via `agent.enhanced_yolo`.    |
 | 2 | `Show enhanced marker in About title`                            | `zed`                                                                | Reads `ZED_ENHANCED` / `ZED_ENHANCED_LABEL` env vars (build-time or runtime).         |
 | 3 | `Add enhanced project manager settings scaffold`                 | `settings`, `settings_content`, `workspace`                          | Placeholder schema only — no UI yet.                                                  |
-| 4 | `Add CNB cross-build infrastructure`                             | `.cnb.yml`, `.cnb/*`, build scripts                                  | Linux-host cross-build via Docker. Touches macOS build files only via runtime-shader fallback (no `metal` compiler on Linux). |
+| 4 | `Add CNB cross-build infrastructure`                             | `.cnb.yml`, `.cnb/*`, build scripts                                  | Linux-host cross-build via Docker. Also adds local mods to `script/bundle-mac` (runtime-shader fallback + enhanced remote-server embed). See §3.7. |
 | 5 | `agent, agent_ui: Add enhanced_yolo to test fixtures`            | `agent`, `agent_ui`                                                  | Test-only fix-up for patch #1. Required for `cargo check --all-targets`.              |
 | 6 | `crashes: Skip broken minidumper Server::drop on macOS quit`     | `crashes`                                                            | Workaround for [#57664][i57664]; see §3.6. **Remove this once upstream merges [PR #57951][pr57951].** |
 
@@ -111,6 +111,35 @@ leak in practice.
 - `minidumper` has been bumped to a version that no longer calls
   `mach_port_deallocate` from `Drop`. (Verify with
   `grep -nC2 'mach_port_deallocate' $(cargo metadata --format-version=1 | jq -r '.packages[] | select(.name == "minidumper") | .manifest_path | sub("Cargo.toml$"; "src")')/ipc/*.rs`.)
+
+### 3.7 Local modifications to `script/bundle-mac`
+
+We carry three categories of edits inside patch #4 (`Add CNB cross-build
+infrastructure`). They are not standalone commits — they live inside the
+diff of patch #4 against upstream.
+
+| # | Where (relative to upstream)                | What it does                                                                                                                                                                              |
+| - | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A | Block after `rustup target add` (≈line 86)  | Detects whether the host has Xcode's `metal` compiler. If not (Command Line Tools only, or a Linux CNB host), exports the `gpui_platform/runtime_shaders` feature so the build does not try AOT shader compilation. |
+| B | The three `cargo build` / `cargo bundle` call sites | Use the `${zed_features[@]+"${zed_features[@]}"}` idiom instead of the plain `"${zed_features[@]}"`. Required because `set -u` (which the script enables) errors on empty-array expansion under bash 3.2 — the bash that ships on the GitHub-hosted `macos-latest` runner. |
+| C | New function `copy_enhanced_remote_servers` + call site | Copies pre-built `dist/zed-remote-server-linux-*.gz` (or `target/...`) into `Contents/Resources/remote_servers/` inside the bundled `.app`. Same set-u-safe array expansion as B. |
+
+**Tracking discipline:**
+
+- Every time you upgrade upstream, diff our script against the new
+  upstream version and confirm A/B/C still apply cleanly:
+  ```bash
+  git diff "$NEW"..enhanced -- script/bundle-mac
+  ```
+  The diff should be a strict superset of the three blocks above. If
+  upstream has refactored the script, you may need to relocate one or
+  more blocks during the rebase.
+- If upstream **adds the runtime-shader fallback** itself (block A
+  becomes redundant), drop block A from our patch.
+- If upstream **switches to a newer bash idiom** that doesn't need our
+  set-u workaround (block B), drop the workaround.
+- Block C (enhanced remote-server embedding) is fork-specific; it stays
+  until we move the logic elsewhere.
 
 ---
 
@@ -513,6 +542,12 @@ git push --force-with-lease laris enhanced
 
 # 5. Diff our patches against upstream
 git diff v<NEW>-pre..enhanced
+
+# 6. Cut a release (CI builds + publishes a GitHub Release)
+git tag enhanced/v<NEW>-pre enhanced
+git push laris enhanced/v<NEW>-pre
+# Then watch: https://github.com/laris/zed/actions
+# Resulting release: https://github.com/laris/zed/releases/tag/enhanced/v<NEW>-pre
 ```
 
 ---
@@ -521,9 +556,111 @@ git diff v<NEW>-pre..enhanced
 
 | Date       | From          | To             | Notes                                                                                                |
 | ---------- | ------------- | -------------- | ---------------------------------------------------------------------------------------------------- |
+| 2026-05-29 | `v1.5.0-pre`  | `v1.5.3-pre`   | 3 patch releases. Refactored CI into `build-enhanced.yml` with parallel mac + linux jobs and tag-driven GitHub Release publishing. Added §3.7 and §11. |
 | 2026-05-23 | `v1.4.1-pre`  | `v1.5.0-pre`   | 135 upstream commits. One conflict in `acp.rs` imports. Added patch #6 (minidumper workaround) here. |
 | 2026-05-22 | `v1.2.1-pre`  | `v1.4.1-pre`   | 333 upstream commits. Test fixtures needed `enhanced_yolo` field (patch #5 added).                   |
 | (earlier)  | `v1.1.5-pre`  | `v1.2.1-pre`   | Pre-Option-B layout — branch-per-version.                                                            |
 | 2026-05-28 | n/a           | n/a            | Migrated to Option B (single rolling `enhanced` branch + archival tags). Wrote this document.        |
 
 Append a new row at every upgrade.
+
+---
+
+## 11. GitHub Actions release workflow
+
+The fork ships releases via `.github/workflows/build-enhanced.yml` running
+on `laris/zed`. It is **not** a copy of upstream's `release.yml` — upstream's
+file is generated from `xtask::workflows::release`, uses Namespace.so
+runners, code-signing certs, and ~10 secrets we don't have. We use a
+purpose-built, smaller workflow on GitHub-hosted runners.
+
+### 11.1 Triggers
+
+| Event                         | What happens                                                            |
+| ----------------------------- | ----------------------------------------------------------------------- |
+| Push to `enhanced` branch     | Both build jobs run; artifacts uploaded to the workflow run only.       |
+| Push of `enhanced/v*` tag     | Both build jobs run; **GitHub Release is created** with the artifacts.  |
+| `workflow_dispatch` (manual)  | Same as branch push; choose `release` or `dev` profile. No release.     |
+
+### 11.2 Jobs
+
+| Job                                       | Runner          | Builds                                              | Approx time |
+| ----------------------------------------- | --------------- | --------------------------------------------------- | ----------- |
+| `bundle_mac_aarch64`                      | `macos-latest`  | `Zed-Preview.app`, `Zed-aarch64.dmg`, `zed-remote-server-macos-aarch64.gz` | 30–120 min (cache-dependent) |
+| `bundle_linux_remote_server_x86_64`       | `ubuntu-latest` | `zed-remote-server-linux-x86_64.gz` (musl, static)  | 5–15 min    |
+| `publish_release`                         | `ubuntu-latest` | GitHub Release (tag push only)                      | 1–2 min     |
+
+### 11.3 Release artifacts
+
+When a tag `enhanced/vX.Y.Z-pre` is pushed, `publish_release` creates a
+GitHub Release at `https://github.com/laris/zed/releases/tag/enhanced/vX.Y.Z-pre`
+with:
+
+- `Zed-Preview-aarch64.tar.gz` + `.sha256` — the macOS `.app`, tarred (preserves
+  ad-hoc signature, resource forks, symlinks).
+- `Zed-aarch64.dmg` — the same `.app` distributed as a DMG.
+- `zed-remote-server-macos-aarch64.gz` — gzipped binary for use as remote
+  server on a macOS aarch64 host.
+- `zed-remote-server-linux-x86_64.gz` + `.sha256` — gzipped statically-linked
+  musl binary, runs on any glibc or musl Linux x86_64 host.
+
+All releases are marked **`--prerelease`** because all our tags end in `-pre`
+(we track upstream pre-release tags). This matches upstream's convention
+(`script/create-draft-release` uses `-p` when `GITHUB_REF_NAME` ends in `-pre`).
+
+Release notes are **auto-generated** from commit history between the previous
+and current tag via `gh release create --generate-notes`.
+
+### 11.4 Failure policy
+
+`publish_release` **fails loudly** if a release with the same tag already
+exists. Tags should be treated as immutable.
+
+If the build fails and you've already pushed the tag:
+
+1. Inspect the failure in the workflow run.
+2. Fix the source code or the workflow.
+3. **Delete the tag and the (likely empty) release:**
+   ```bash
+   gh release delete enhanced/vX.Y.Z-pre --repo laris/zed --yes --cleanup-tag
+   git tag -d enhanced/vX.Y.Z-pre
+   git push laris :refs/tags/enhanced/vX.Y.Z-pre
+   ```
+4. Re-tag and push.
+
+If you need to publish *more than once* for the same upstream version (e.g.,
+you re-spin a build), append a suffix: `enhanced/vX.Y.Z-pre.2`, etc.
+
+### 11.5 Reusing upstream scripts
+
+The workflow calls upstream-derived shell scripts that we have customized.
+Each rebase, diff them against the new upstream to confirm our local mods
+still apply:
+
+```bash
+git diff "$NEW"..enhanced -- script/bundle-mac
+```
+
+See §3.7 for what blocks live in `script/bundle-mac`. If upstream renames or
+reorganizes a script, the rebase will likely conflict; resolve the conflict
+to preserve the three blocks.
+
+### 11.6 Secrets we don't (yet) have
+
+Adding any of the following enables features currently disabled in CI:
+
+| Secret                            | Enables                                              |
+| --------------------------------- | ---------------------------------------------------- |
+| `MACOS_CERTIFICATE` + password    | Developer-ID code signing (replaces ad-hoc)          |
+| `APPLE_NOTARIZATION_KEY` + id + issuer | Apple notarization (no Gatekeeper warning)      |
+| `SENTRY_AUTH_TOKEN`               | Upload debug symbols + minidumps to Sentry           |
+| `ZED_CLIENT_CHECKSUM_SEED`        | Match upstream's binary self-update integrity hash   |
+
+`script/bundle-mac` picks these up automatically when present (no workflow
+changes needed). Store them as repository secrets in `laris/zed` settings.
+
+### 11.7 Build minutes
+
+`laris/zed` is public → GitHub-hosted macOS minutes are free and unlimited.
+The 2h cold mac build doesn't cost anything. Linux jobs use ubuntu-latest
+which is also free for public repos.
