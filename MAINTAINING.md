@@ -258,6 +258,13 @@ git rebase --continue
 # 1. Compile everything, including test targets
 set -o pipefail
 cargo check --workspace --all-targets
+# If this fails with "cannot execute tool 'metal' due to missing Metal
+# Toolchain", your Mac has no Metal toolchain (CLT-only, or an Xcode update
+# dropped the component). That's an environment issue, NOT a code problem —
+# gpui_macos AOT-compiles shaders at build time. Re-run with the same
+# runtime-shader fallback our CI uses:
+#   cargo check --workspace --all-targets --features gpui_platform/runtime_shaders
+# (or install it once: `xcodebuild -downloadComponent MetalToolchain`).
 
 # 2. Dev build (faster than release — fine for smoke test)
 script/bundle-mac -d -i aarch64-apple-darwin
@@ -556,6 +563,7 @@ git push laris enhanced/v<NEW>-pre
 
 | Date       | From          | To             | Notes                                                                                                |
 | ---------- | ------------- | -------------- | ---------------------------------------------------------------------------------------------------- |
+| 2026-06-27 | `v1.5.3-pre`  | `v1.9.0-pre`   | 624 upstream commits. Conflicts only in patch #1 (acp.rs imports + 2 fn sites; agent_settings.rs and settings_content/agent.rs vs upstream's new `sandbox_permissions`). Patches #2/#5/#6 auto-merged cleanly despite heavy churn (crashes.rs +89/−90, zed.rs +262/−21). PR #57951 confirmed **rejected** (CLA + maintainer prefers upstream minidumper fix), minidumper still 0.9 → **patch #6 kept**. Hit local "missing Metal Toolchain" — verified with `--features gpui_platform/runtime_shaders` (now documented in §4.4). |
 | 2026-05-29 | `v1.5.0-pre`  | `v1.5.3-pre`   | 3 patch releases. Refactored CI into `build-enhanced.yml` with parallel mac + linux jobs and tag-driven GitHub Release publishing. Added §3.7 and §11. |
 | 2026-05-23 | `v1.4.1-pre`  | `v1.5.0-pre`   | 135 upstream commits. One conflict in `acp.rs` imports. Added patch #6 (minidumper workaround) here. |
 | 2026-05-22 | `v1.2.1-pre`  | `v1.4.1-pre`   | 333 upstream commits. Test fixtures needed `enhanced_yolo` field (patch #5 added).                   |
