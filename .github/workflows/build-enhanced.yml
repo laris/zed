@@ -213,15 +213,15 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
-          # All our tags end in -pre because they track upstream -pre tags.
-          # Match upstream's release.yml convention: -pre → prerelease.
+          # Preview baselines and their immutable re-spins are prereleases.
+          # Final upstream baselines such as enhanced/v1.8.2 are not.
           PRE_FLAG=""
-          if [[ "$TAG" == *-pre ]]; then
+          if [[ "$TAG" == *-pre || "$TAG" == *-pre.* ]]; then
             PRE_FLAG="--prerelease"
           fi
           # Fail loudly if the release already exists (per MAINTAINING.md §11).
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Release $TAG already exists. Delete the tag + release, fix, retag."
+            echo "::error::Release $TAG already exists. Keep it immutable and publish a new re-spin tag."
             exit 1
           fi
           gh release create "$TAG" \
