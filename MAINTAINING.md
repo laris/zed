@@ -44,14 +44,14 @@ At each checkpoint:
 5. Publish only the changed refs to GitHub and then CNB, one explicit ref at a
    time.
 6. Prove exact all-head/all-tag parity between `laris/zed` and CNB
-   `zed-upstream`.
+   `zed-yolo`.
 
 Two different guarantees must not be confused:
 
 - **Release coverage:** every upstream release tag published by the checkpoint
   exists on GitHub and CNB with the same tag-object SHA.
 - **Provider parity:** every branch and tag currently present in `laris/zed`
-  has the same ref-object SHA in CNB `zed-upstream`.
+  has the same ref-object SHA in CNB `zed-yolo`.
 
 This policy does **not** claim that CNB continuously mirrors every live
 upstream feature branch. CNB is a release-aligned union mirror and may lag
@@ -114,7 +114,7 @@ crash-on-quit fix is pending PR).
 | ---------- | ----------------------------------------------- | --------------------------------------------------------------- |
 | `upstream` | `https://github.com/zed-industries/zed.git`     | Pull-only; `main` plus explicitly selected release tags         |
 | `github`   | `git@github.com:laris/zed.git`                  | Maintained public fork; normally fetch only `enhanced`           |
-| `cnb`      | `https://cnb.cool/lary.me/zed-upstream.git`     | Private release-aligned union mirror; normally fetch `enhanced`  |
+| `cnb`      | `https://cnb.cool/lary.me/zed-yolo.git`         | Private release-aligned union mirror; normally fetch `enhanced`  |
 
 The clone must remain a `blob:none` partial clone. Its normal fetch refspecs
 are intentionally narrow:
@@ -224,7 +224,7 @@ self-referential because committing the table changes that SHA.
 | Local `/Users/lqiao/dev/codes/zed-yolo` | `blob:none` working clone | local | Cache only `upstream/main` | One checked-out local branch | Local `enhanced` equals both providers after publish |
 | `zed-industries/zed` | Read-only source | Public | Live upstream | None | May lead the Friday checkpoint; selected release tags are authoritative baselines |
 | `laris/zed` | Maintained fork | Public | Friday upstream snapshot | Published enhanced branch | Every advertised head/tag equals CNB |
-| `lary.me/zed-upstream` | Release-aligned union mirror | Private | Equals GitHub fork | Equals GitHub fork | Every advertised head/tag equals GitHub |
+| `lary.me/zed-yolo` | Release-aligned union mirror | Private | Equals GitHub fork | Equals GitHub fork | Every advertised head/tag equals GitHub |
 
 The local clone intentionally has only one local branch and no complete local
 tag inventory. Therefore, do **not** use a local-versus-remote `--all` or
@@ -257,12 +257,12 @@ git config --get-all remote.cnb.fetch
 $GH gh auth status
 $GH gh repo view laris/zed \
   --json nameWithOwner,visibility,url,defaultBranchRef,isFork,parent
-$CNB_API repositories get-by-id --repo lary.me/zed-upstream
+$CNB_API repositories get-by-id --repo lary.me/zed-yolo
 ```
 
 Expected identities are public GitHub fork `laris/zed` with parent
 `zed-industries/zed`, and active private CNB repository
-`lary.me/zed-upstream`. GitHub traffic must use `$GH`; CNB must use `$CNB` or
+`lary.me/zed-yolo`. GitHub traffic must use `$GH`; CNB must use `$CNB` or
 `$CNB_API` without a proxy or macOS Keychain access.
 
 #### 2.5.2 Enumerate and compare every provider ref
@@ -726,7 +726,7 @@ $CNB git ls-remote --heads --tags cnb | LC_ALL=C sort \
   >"$TMP_REFS/cnb.final"
 diff -u "$TMP_REFS/github.final" "$TMP_REFS/cnb.final"
 
-$CNB_API repositories get-by-id --repo lary.me/zed-upstream
+$CNB_API repositories get-by-id --repo lary.me/zed-yolo
 rm -rf "$TMP_REFS"
 ```
 
@@ -1007,6 +1007,7 @@ diff -u /tmp/zed.github.refs /tmp/zed.cnb.refs
 
 | Date       | From          | To             | Notes                                                                                                |
 | ---------- | ------------- | -------------- | ---------------------------------------------------------------------------------------------------- |
+| 2026-07-02 | `v1.9.0-pre`  | `v1.9.0-pre`   | Promoted private CNB `lary.me/zed-yolo` as the active union mirror without fetching a newer upstream baseline. Reused its complete GitHub-matching ref inventory, updated only `enhanced`, and retired `zed-upstream` after exact parity verification. |
 | 2026-07-01 | `v1.9.0-pre`  | `v1.9.0-pre`   | Adopted the one-partial-clone Friday checkpoint policy, explicit-ref incremental GitHub/CNB publishing, promised-object hydration, and exact remote-to-remote parity proof. No source rebase in this documentation-only change. |
 | 2026-06-27 | `v1.5.3-pre`  | `v1.9.0-pre`   | 624 upstream commits. Conflicts only in patch #1 (acp.rs imports + 2 fn sites; agent_settings.rs and settings_content/agent.rs vs upstream's new `sandbox_permissions`). Patches #2/#5/#6 auto-merged cleanly despite heavy churn (crashes.rs +89/−90, zed.rs +262/−21). PR #57951 confirmed **rejected** (CLA + maintainer prefers upstream minidumper fix), minidumper still 0.9 → **patch #6 kept**. Hit local "missing Metal Toolchain" — verified with `--features gpui_platform/runtime_shaders` (now documented in §4.4). |
 | 2026-05-29 | `v1.5.0-pre`  | `v1.5.3-pre`   | 3 patch releases. Refactored CI into `build-enhanced.yml` with parallel mac + linux jobs and tag-driven GitHub Release publishing. Added §3.7 and §11. |
