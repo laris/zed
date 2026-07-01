@@ -1,7 +1,7 @@
-# Maintaining the laris/zed fork
+# Maintaining the laris/zed-yolo fork
 
 > **Purpose of this document.** This is the long-term operating manual for the
-> `laris/zed` fork of [zed-industries/zed][upstream]. It documents what we
+> `laris/zed-yolo` fork of [zed-industries/zed][upstream]. It documents what we
 > carry on top of upstream, how to upgrade to a new upstream version, how to
 > verify the result, and how to contribute fixes back. Future maintainers
 > (including future-you) should read this end-to-end before any upstream
@@ -43,14 +43,14 @@ At each checkpoint:
 4. Rebase and validate the fork-only commits on the selected release tag.
 5. Publish only the changed refs to GitHub and then CNB, one explicit ref at a
    time.
-6. Prove exact all-head/all-tag parity between `laris/zed` and CNB
+6. Prove exact all-head/all-tag parity between `laris/zed-yolo` and CNB
    `zed-yolo`.
 
 Two different guarantees must not be confused:
 
 - **Release coverage:** every upstream release tag published by the checkpoint
   exists on GitHub and CNB with the same tag-object SHA.
-- **Provider parity:** every branch and tag currently present in `laris/zed`
+- **Provider parity:** every branch and tag currently present in `laris/zed-yolo`
   has the same ref-object SHA in CNB `zed-yolo`.
 
 This policy does **not** claim that CNB continuously mirrors every live
@@ -113,7 +113,7 @@ crash-on-quit fix is pending PR).
 | Remote     | URL                                             | Narrow fetch set / purpose                                      |
 | ---------- | ----------------------------------------------- | --------------------------------------------------------------- |
 | `upstream` | `https://github.com/zed-industries/zed.git`     | Pull-only; `main` plus explicitly selected release tags         |
-| `github`   | `git@github.com:laris/zed.git`                  | Maintained public fork; normally fetch only `enhanced`           |
+| `github`   | `git@github.com:laris/zed-yolo.git`             | Maintained public fork; normally fetch only `enhanced`           |
 | `cnb`      | `https://cnb.cool/lary.me/zed-yolo.git`         | Private release-aligned union mirror; normally fetch `enhanced`  |
 
 The clone must remain a `blob:none` partial clone. Its normal fetch refspecs
@@ -130,7 +130,7 @@ Never run `git fetch --all`, `git fetch --tags`, `git push --all`,
 `git push --tags`, `git push --mirror`, or a blind prune in this repository.
 
 > **Never push to `upstream`.** Upstream contributions go through
-> `laris/zed` branches and a PR to `zed-industries/zed`. See §6.
+> `laris/zed-yolo` branches and a PR to `zed-industries/zed`. See §6.
 
 #### 2.1.1 Why CNB does not show `[blob:none]`
 
@@ -223,7 +223,7 @@ self-referential because committing the table changes that SHA.
 | -------- | ---- | ---------- | ------------- | ----------------- | --------------- |
 | Local `/Users/lqiao/dev/codes/zed-yolo` | `blob:none` working clone | local | Cache only `upstream/main` | One checked-out local branch | Local `enhanced` equals both providers after publish |
 | `zed-industries/zed` | Read-only source | Public | Live upstream | None | May lead the Friday checkpoint; selected release tags are authoritative baselines |
-| `laris/zed` | Maintained fork | Public | Friday upstream snapshot | Published enhanced branch | Every advertised head/tag equals CNB |
+| `laris/zed-yolo` | Maintained fork | Public | Friday upstream snapshot | Published enhanced branch | Every advertised head/tag equals CNB |
 | `lary.me/zed-yolo` | Release-aligned union mirror | Private | Equals GitHub fork | Equals GitHub fork | Every advertised head/tag equals GitHub |
 
 The local clone intentionally has only one local branch and no complete local
@@ -255,12 +255,12 @@ git config --get-all remote.upstream.fetch
 git config --get-all remote.cnb.fetch
 
 $GH gh auth status
-$GH gh repo view laris/zed \
+$GH gh repo view laris/zed-yolo \
   --json nameWithOwner,visibility,url,defaultBranchRef,isFork,parent
 $CNB_API repositories get-by-id --repo lary.me/zed-yolo
 ```
 
-Expected identities are public GitHub fork `laris/zed` with parent
+Expected identities are public GitHub fork `laris/zed-yolo` with parent
 `zed-industries/zed`, and active private CNB repository
 `lary.me/zed-yolo`. GitHub traffic must use `$GH`; CNB must use `$CNB` or
 `$CNB_API` without a proxy or macOS Keychain access.
@@ -274,11 +274,11 @@ VERIFY_TMP=$(mktemp -d)
 trap 'rm -rf "$VERIFY_TMP"' EXIT
 
 $GH gh api --paginate \
-  'repos/laris/zed/git/matching-refs/heads?per_page=100' \
+  'repos/laris/zed-yolo/git/matching-refs/heads?per_page=100' \
   --jq '.[] | [.ref, .object.sha] | @tsv' \
   >"$VERIFY_TMP/github-heads"
 $GH gh api --paginate \
-  'repos/laris/zed/git/matching-refs/tags?per_page=100' \
+  'repos/laris/zed-yolo/git/matching-refs/tags?per_page=100' \
   --jq '.[] | [.ref, .object.sha] | @tsv' \
   >"$VERIFY_TMP/github-tags"
 cat "$VERIFY_TMP/github-heads" "$VERIFY_TMP/github-tags" |
@@ -330,7 +330,7 @@ $GH gh api \
   --jq '{status, ahead_by, behind_by, total_commits}'
 
 $GH gh api \
-  "repos/laris/zed/compare/$OFFICIAL_MAIN...$GITHUB_ENHANCED" \
+  "repos/laris/zed-yolo/compare/$OFFICIAL_MAIN...$GITHUB_ENHANCED" \
   --jq '{status, ahead_by, behind_by, merge_base: .merge_base_commit.sha}'
 ```
 
@@ -952,7 +952,7 @@ Re-read §1 and §3 if any of these become true:
 
 1. **Upstream merges PR #57951** → drop patch #6 at the next upgrade and
    delete §3.6.
-2. **You add another collaborator** who pulls from `laris/zed:enhanced` →
+2. **You add another collaborator** who pulls from `laris/zed-yolo:enhanced` →
    replace the single-owner rebase workflow with merge-based maintenance and
    document the migration here.
 3. **Patch set grows past ~15 commits** → consider whether some patches should
@@ -1007,7 +1007,7 @@ diff -u /tmp/zed.github.refs /tmp/zed.cnb.refs
 
 | Date       | From          | To             | Notes                                                                                                |
 | ---------- | ------------- | -------------- | ---------------------------------------------------------------------------------------------------- |
-| 2026-07-02 | `v1.9.0-pre`  | `v1.9.0-pre`   | Promoted private CNB `lary.me/zed-yolo` as the active union mirror without fetching a newer upstream baseline. Reused its complete GitHub-matching ref inventory, updated only `enhanced`, and retired `zed-upstream` after exact parity verification. |
+| 2026-07-02 | `v1.9.0-pre`  | `v1.9.0-pre`   | Unified the maintained names as GitHub `laris/zed-yolo` and private CNB `lary.me/zed-yolo` without fetching a newer upstream baseline. Reused CNB's complete GitHub-matching ref inventory and updated only `enhanced`. Archived predecessor `zed-upstream` preserves no unique Git refs or release assets; API deletion was blocked by root-group rules and remains a webpage task. |
 | 2026-07-01 | `v1.9.0-pre`  | `v1.9.0-pre`   | Adopted the one-partial-clone Friday checkpoint policy, explicit-ref incremental GitHub/CNB publishing, promised-object hydration, and exact remote-to-remote parity proof. No source rebase in this documentation-only change. |
 | 2026-06-27 | `v1.5.3-pre`  | `v1.9.0-pre`   | 624 upstream commits. Conflicts only in patch #1 (acp.rs imports + 2 fn sites; agent_settings.rs and settings_content/agent.rs vs upstream's new `sandbox_permissions`). Patches #2/#5/#6 auto-merged cleanly despite heavy churn (crashes.rs +89/−90, zed.rs +262/−21). PR #57951 confirmed **rejected** (CLA + maintainer prefers upstream minidumper fix), minidumper still 0.9 → **patch #6 kept**. Hit local "missing Metal Toolchain" — verified with `--features gpui_platform/runtime_shaders` (now documented in §4.4). |
 | 2026-05-29 | `v1.5.0-pre`  | `v1.5.3-pre`   | 3 patch releases. Refactored CI into `build-enhanced.yml` with parallel mac + linux jobs and tag-driven GitHub Release publishing. Added §3.7 and §11. |
@@ -1023,7 +1023,7 @@ Append a new row at every upgrade.
 ## 11. GitHub Actions release workflow
 
 The fork ships releases via `.github/workflows/build-enhanced.yml` running
-on `laris/zed`. It is **not** a copy of upstream's `release.yml` — upstream's
+on `laris/zed-yolo`. It is **not** a copy of upstream's `release.yml` — upstream's
 file is generated from `xtask::workflows::release`, uses Namespace.so
 runners, code-signing certs, and ~10 secrets we don't have. We use a
 purpose-built, smaller workflow on GitHub-hosted runners.
@@ -1047,7 +1047,7 @@ purpose-built, smaller workflow on GitHub-hosted runners.
 ### 11.3 Release artifacts
 
 When an `enhanced/v*` tag is pushed, `publish_release` creates the matching
-GitHub Release under `https://github.com/laris/zed/releases/tag/<tag>` with:
+GitHub Release under `https://github.com/laris/zed-yolo/releases/tag/<tag>` with:
 
 - `Zed-Preview-aarch64.tar.gz` + `.sha256` — the macOS `.app`, tarred (preserves
   ad-hoc signature, resource forks, symlinks).
@@ -1111,10 +1111,10 @@ Adding any of the following enables features currently disabled in CI:
 | `ZED_CLIENT_CHECKSUM_SEED`        | Match upstream's binary self-update integrity hash   |
 
 `script/bundle-mac` picks these up automatically when present (no workflow
-changes needed). Store them as repository secrets in `laris/zed` settings.
+changes needed). Store them as repository secrets in `laris/zed-yolo` settings.
 
 ### 11.7 Build minutes
 
-`laris/zed` is public → GitHub-hosted macOS minutes are free and unlimited.
+`laris/zed-yolo` is public → GitHub-hosted macOS minutes are free and unlimited.
 The 2h cold mac build doesn't cost anything. Linux jobs use ubuntu-latest
 which is also free for public repos.
