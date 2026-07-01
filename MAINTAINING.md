@@ -90,15 +90,17 @@ We maintain a small, focused patch set on top of upstream Zed to:
 - **Carry a project-manager settings scaffold** — placeholder schema for
   future workspace/agent management UI.
 - **Carry CNB cross-build infrastructure** — Linux → macOS compile path for
-  CI under cnb.cool. (Linux-host cross-build via `cargo-zigbuild`; macOS host
-  uses the upstream `script/bundle-mac` unchanged.)
+  CI under cnb.cool. Linux-host cross-builds use `cargo-zigbuild`; macOS hosts
+  use an upstream-derived `script/bundle-mac` with the three tracked fork
+  modifications in §3.7.
 - **Carry a macOS crash-on-quit workaround** — see §3.6 and upstream
   [#57664][i57664]/[#57950][i57950]/[PR #57951][pr57951].
 
 The fork is **personal**. It's not collaboratively maintained. The patch set
 exists because upstream either won't accept these changes (YOLO defaults are
-intentionally conservative upstream) or hasn't accepted them yet (the
-crash-on-quit fix is pending PR).
+intentionally conservative upstream), they are unfinished fork experiments
+(the project-manager scaffold), or upstream rejected this exact workaround
+while preferring its own eventual fix (the crash-on-quit patch).
 
 [i57664]: https://github.com/zed-industries/zed/issues/57664
 [i57950]: https://github.com/zed-industries/zed/issues/57950
@@ -204,6 +206,13 @@ Three immutable tag classes are maintained:
 The timestamped rollback tag is necessary because an enhanced branch can gain
 fixes after its original `enhanced/vX.Y.Z-pre` build tag was published. Never
 move the original build tag to include those later fixes.
+
+An `enhanced/*` tag identifies the exact tree that was validated and released;
+it is not required to remain an ancestor of the rolling `enhanced` branch
+after a later, explicitly authorized history rewrite. Never use enhanced-tag
+ancestry to discover the rebase base. Prove that the unchanged upstream
+`vX.Y.Z-pre` or `vX.Y.Z` tag is an ancestor of `enhanced`, and use the newest
+`archive/enhanced/*` tag when the previous rolling-branch tip is needed.
 
 All three classes are retained on both providers. They answer which upstream
 release was used, what was shipped, and what branch state existed immediately
@@ -354,7 +363,7 @@ earlier ones. The chronological order is:
 
 | # | Subject                                                          | Crates touched                                                       | Notes                                                                                 |
 | - | ---------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| 1 | `Add config-backed enhanced YOLO runtime`                        | `agent_servers`, `agent_settings`, `auto_update`, `settings_content` | Adds `EnhancedYoloSettings` to `AgentSettings`; opt-out via `agent.enhanced_yolo`.    |
+| 1 | `Add config-backed enhanced YOLO runtime`                        | `agent_servers`, `agent_settings`, `auto_update`, `settings_content` | Adds `EnhancedYoloSettings` to `AgentSettings`; opt-out via `agent.enhanced_yolo`. Also contains bundled remote-server lookup that belongs with bundling during §12.3 compaction. |
 | 2 | `Show enhanced marker in About title`                            | `zed`                                                                | Reads `ZED_ENHANCED` / `ZED_ENHANCED_LABEL` env vars (build-time or runtime).         |
 | 3 | `Add enhanced project manager settings scaffold`                 | `settings`, `settings_content`, `workspace`                          | Placeholder schema only — no UI yet.                                                  |
 | 4 | `Add CNB cross-build infrastructure`                             | `.cnb.yml`, `.cnb/*`, build scripts                                  | Linux-host cross-build via Docker. Also adds local mods to `script/bundle-mac` (runtime-shader fallback + enhanced remote-server embed). See §3.7. |
@@ -366,6 +375,59 @@ maintenance-document commits may also sit above the baseline. Before every
 rebase, derive the complete replay set with
 `git log --reverse "$PREV^{commit}..enhanced"`; never assume it is still six
 commits.
+
+### 3.1 Enhanced YOLO safety boundary (patch #1)
+
+The settings defaults are intentionally asymmetric:
+
+| Setting | Default | Meaning |
+| ------- | ------- | ------- |
+| `agent.enhanced_yolo.enabled` | `true` | Enables the enhanced policy. |
+| `auto_approve_acp` | `true` | Selects `AllowAlways`, then `AllowOnce`, then another non-reject option. If no allow option exists, the request is not auto-approved. |
+| `inject_agent_env` | `true` | Adds `ZED_YOLO=1` and `ZED_YOLO_APPROVALS=1` to ACP agent commands without overwriting adapter-supplied values. |
+| `disable_agent_sandbox` | `false` | Adds `ZED_YOLO_SANDBOX=1` only when explicitly enabled. The sandbox is not disabled by default. |
+
+Process-level `ZED_YOLO` or `ZED_YOLO_APPROVALS` false-like values disable
+auto-approval; true-like values enable it. Keep the explicit reject path and
+the no-allow fallback when resolving upstream changes. This is a personal-fork
+policy and is not suitable for an upstream-default PR.
+
+Patch #1 also contains bundled remote-server selection in `auto_update`.
+That code searches an explicit directory, app resources, and the data-dir
+cache before downloading; `ZED_ENHANCED_REMOTE_SERVER_REQUIRED` turns a miss
+into an error. This behavior is useful, but it is bundling/deployment logic,
+not YOLO policy, and should move during §12.3 compaction.
+
+### 3.2 Enhanced build marker (patch #2)
+
+The About window shows `Enhanced` by default. `ZED_ENHANCED_LABEL` supplies a
+custom build-time or runtime label, while a false-like `ZED_ENHANCED` disables
+the marker. Preserve both the visible title and copied diagnostic details so a
+user can distinguish fork builds in screenshots and bug reports.
+
+### 3.3 Project-manager scaffold (patch #3)
+
+This patch is schema and defaults only. `workspace.project_manager.enabled`
+defaults to false, risky migration/auto-expansion options default to false,
+and there is no completed persistence path or UI. Do not describe it as a
+working project manager. Re-evaluate whether to implement or drop the scaffold
+when upstream workspace persistence changes.
+
+### 3.4 Cross-build and bundle integration (patch #4)
+
+This is the largest and most conflict-prone patch. It combines the CNB
+pipeline/container, macOS/Linux cross-compilation shims, Mach-O validation,
+and bundle integration. Review its net diff by subsystem rather than accepting
+a conflict because it still applies mechanically. The source-base comment and
+attachment release version in `.cnb.yml` are checkpoint metadata and must be
+updated deliberately; see §4.3.2 and §5.2.
+
+### 3.5 Fixture completeness (patch #5)
+
+This patch exists because patch #1 changed `AgentSettings` constructors used
+by all-target tests. It has no independent product behavior. Keep it adjacent
+to patch #1 until the next scheduled compaction, then fold it into patch #1 so
+the feature is buildable at every replay step.
 
 ### 3.6 The minidumper workaround (patch #6)
 
@@ -387,9 +449,11 @@ leak in practice.
 
 ### 3.7 Local modifications to `script/bundle-mac`
 
-We carry three categories of edits inside patch #4 (`Add CNB cross-build
-infrastructure`). They are not standalone commits — they live inside the
-diff of patch #4 against upstream.
+We carry three categories of edits in the net fork diff logically owned by
+patch #4 (`Add CNB cross-build infrastructure`). Blocks A and C originated in
+that commit; block B was completed by the later standalone set-u fixes. The
+next scheduled compaction in §12.3 folds those follow-ups into the same
+logical patch.
 
 | # | Where (relative to upstream)                | What it does                                                                                                                                                                              |
 | - | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -574,9 +638,12 @@ grep -nF "$PREV" .cnb.yml MAINTAINING.md
 git log --format=%H --grep='Add CNB cross-build infrastructure' -n 1 enhanced
 ```
 
-Update `.cnb.yml` so its source-base comment and `RELEASE_TAG` refer to `$NEW`,
-then amend the CNB infrastructure commit with an interactive rebase if those
-values are intended to remain inside that commit. Review the final result:
+Update `.cnb.yml` so its source-base comment and attachment-release
+`RELEASE_TAG` refer to `$NEW`, then amend the CNB infrastructure commit with an
+interactive rebase if those values are intended to remain inside that commit.
+`RELEASE_TAG` is consumed by `cnbcool/attachments`; it does not trigger this
+pipeline and does not currently equal the Git tag. The established value is
+`zed-yolo-$NEW-enhanced`. Review the final result:
 
 ```bash
 grep -nE 'Source base:|RELEASE_TAG:' .cnb.yml
@@ -767,13 +834,16 @@ Known script quirks (do not "fix" without understanding):
 
 ### 5.2 Linux-host cross-build (CNB)
 
-Driven by `.cnb.yml` + `.cnb/Dockerfile.zed-macos`. Triggered automatically
-when the `RELEASE_TAG` env var matches a pushed tag. The pipeline produces
-unsigned macOS Mach-O binaries; signing/notarization happens later locally or
-in a rcodesign stage.
+Driven by `.cnb.yml` + `.cnb/Dockerfile.zed-macos`. The current `$: vscode`
+definition is a manually started CNB workspace build; there is no Git-tag
+trigger in this file. The pipeline produces unsigned macOS Mach-O binaries;
+signing/notarization happens later locally or in a rcodesign stage.
 
-The `RELEASE_TAG` value in `.cnb.yml` must match `enhanced/<NEW>` after each
-upgrade, for either a preview or final upstream baseline. See §4.3.2.
+The `RELEASE_TAG` value names the CNB attachment release populated by
+`cnbcool/attachments`. Keep its established `zed-yolo-$NEW-enhanced` form in
+sync with the selected preview or final baseline. Do not assume it is the Git
+tag `enhanced/<NEW>` unless the CNB pipeline is explicitly redesigned and
+slash-containing attachment tags are tested. See §4.3.2.
 
 ### 5.3 Parallel installs
 
@@ -950,13 +1020,16 @@ git cherry-pick fix/crash-server-mach-port-on-macos-quit
 
 Re-read §1 and §3 if any of these become true:
 
-1. **Upstream merges PR #57951** → drop patch #6 at the next upgrade and
-   delete §3.6.
+1. **Upstream lands an equivalent fix or upgrades minidumper** → drop patch #6
+   at the next upgrade and delete §3.6. PR #57951 itself was rejected, so do
+   not wait for that exact PR to merge.
 2. **You add another collaborator** who pulls from `laris/zed-yolo:enhanced` →
    replace the single-owner rebase workflow with merge-based maintenance and
    document the migration here.
-3. **Patch set grows past ~15 commits** → consider whether some patches should
-   become separate feature crates / extensions / upstream PRs.
+3. **Patch set grows past ~15 commits** → this threshold has been reached.
+   Execute the compaction plan in §12.3 at the next scheduled baseline rebase;
+   do not rewrite the published branch merely for cosmetic cleanup between
+   checkpoints.
 4. **A patch becomes irrelevant** (upstream removes the code it touches) →
    drop the patch, document the removal here.
 5. **macOS introduces a new bundle identifier convention** → revisit §5.3.
@@ -1007,6 +1080,7 @@ diff -u /tmp/zed.github.refs /tmp/zed.cnb.refs
 
 | Date       | From          | To             | Notes                                                                                                |
 | ---------- | ------------- | -------------- | ---------------------------------------------------------------------------------------------------- |
+| 2026-07-02 | `v1.9.0-pre`  | `v1.9.0-pre`   | Audited the complete replay history and net fork diff. Documented stable invariants, immutable-tag semantics, provider-retirement verification, CI cost, and the next-rebase compaction plan. No product source or upstream baseline changed. |
 | 2026-07-02 | `v1.9.0-pre`  | `v1.9.0-pre`   | Unified the maintained names as GitHub `laris/zed-yolo` and private CNB `lary.me/zed-yolo` without fetching a newer upstream baseline. Reused CNB's complete GitHub-matching ref inventory and updated only `enhanced`. Deleted predecessor `zed-upstream` after proving that it preserved no unique reachable Git refs, releases, or assets. The delete clients reported HTTP 412/403, but subsequent official metadata and Git checks both confirmed `Repository Not Found`. |
 | 2026-07-01 | `v1.9.0-pre`  | `v1.9.0-pre`   | Adopted the one-partial-clone Friday checkpoint policy, explicit-ref incremental GitHub/CNB publishing, promised-object hydration, and exact remote-to-remote parity proof. No source rebase in this documentation-only change. |
 | 2026-06-27 | `v1.5.3-pre`  | `v1.9.0-pre`   | 624 upstream commits. Conflicts only in patch #1 (acp.rs imports + 2 fn sites; agent_settings.rs and settings_content/agent.rs vs upstream's new `sandbox_permissions`). Patches #2/#5/#6 auto-merged cleanly despite heavy churn (crashes.rs +89/−90, zed.rs +262/−21). PR #57951 confirmed **rejected** (CLA + maintainer prefers upstream minidumper fix), minidumper still 0.9 → **patch #6 kept**. Hit local "missing Metal Toolchain" — verified with `--features gpui_platform/runtime_shaders` (now documented in §4.4). |
@@ -1115,6 +1189,140 @@ changes needed). Store them as repository secrets in `laris/zed-yolo` settings.
 
 ### 11.7 Build minutes
 
-`laris/zed-yolo` is public → GitHub-hosted macOS minutes are free and unlimited.
-The 2h cold mac build doesn't cost anything. Linux jobs use ubuntu-latest
-which is also free for public repos.
+`laris/zed-yolo` is public, so standard GitHub-hosted macOS and Linux runners
+are not billed under GitHub's current public-repository policy. They remain
+subject to GitHub usage policy, queueing, concurrency, and service limits; do
+not describe the capacity itself as unlimited.
+
+---
+
+## 12. Lessons from the fork history
+
+This section records the design conclusions that are easy to lose when only
+the current tree is examined. At commit `e717403925`, the branch contained 16
+commits above `v1.9.0-pre`; this review itself adds another documentation
+commit, so always derive the live replay list instead of trusting a stored
+count:
+
+```bash
+PREV=v1.9.0-pre
+git log --reverse --format='%h %ad %s' --date=short \
+  "$PREV^{commit}..enhanced"
+git rev-list --count "$PREV^{commit}..enhanced"
+git diff --stat "$PREV^{commit}..enhanced"
+```
+
+### 12.1 Invariants that define a healthy fork
+
+| Concern | Invariant | Authoritative proof |
+| ------- | --------- | ------------------- |
+| Selected baseline | The selected unchanged upstream release tag is an ancestor of `enhanced`. | `git merge-base --is-ancestor "$PREV^{commit}" enhanced` |
+| Checkpoint `main` | GitHub and CNB contain the same fast-forward snapshot of upstream `main`; it may be newer than the selected release baseline. | Compare `refs/heads/main` on both providers and prove the old checkpoint is its ancestor before updating. |
+| Rolling patch branch | Local, GitHub, and CNB `enhanced` are identical after publication. | Exact SHA comparison with a force-with-lease for any rebase. |
+| Release coverage | Every upstream release published by the checkpoint exists unchanged on both maintained providers. | Compare tag-object SHAs across upstream, GitHub, and CNB. |
+| Provider parity | Every advertised GitHub fork head and tag has the same ref-object SHA in CNB. | The remote-to-remote comparison in §2.5.2; the intentionally sparse local clone is not the inventory authority. |
+| Published artifacts | Upstream, enhanced-build, and rollback tags are immutable. | Reject any operation that would move an existing tag. |
+| Network boundary | GitHub uses `$GH`; CNB uses `$CNB`/`$CNB_API` without proxy or Keychain access. | Inspect the exact wrapper used for every network command. |
+
+Do not call a maintenance run complete when only the local branch is clean or
+only the two `enhanced` SHAs match. The all-ref provider proof is a separate
+invariant.
+
+### 12.2 What the history taught us
+
+| Observation | Durable lesson | Maintenance consequence |
+| ----------- | -------------- | ----------------------- |
+| Early branch-per-version maintenance created overlapping names and cleanup pressure. | Keep one rolling branch and use namespaced immutable tags for release and rollback identity. | Never recreate version branches or reuse a tag name as a branch. |
+| The YOLO setting compiled before all-target fixtures were updated. | A product patch is incomplete until test-only constructors and fixtures compile. | Keep `cargo check --workspace --all-targets` mandatory and eventually fold patch #5 into patch #1. |
+| The YOLO commit also added bundled remote-server selection in `auto_update`. | Commit titles and actual ownership can drift as experiments grow. | Move the `auto_update` hunks into the bundling group during compaction and keep the YOLO commit focused on policy. |
+| Bash 3.2 with `set -u` rejected empty-array expansion in the macOS bundle script. | CI scripts must be validated on the oldest shell actually used by a runner. | Preserve the set-u-safe expansions until upstream removes the need. |
+| The first GitHub workflow and its timeout tweak were later replaced entirely. | Intermediate CI implementations add rebase work without preserving useful final behavior. | Collapse the surviving workflow into one commit during scheduled compaction. |
+| A `blob:none` clone could enumerate commits while lacking blobs needed by CNB. | Object discovery and object availability are different states. | Hydrate only the new reachable delta through GitHub before starting a no-proxy CNB push. |
+| The local partial clone intentionally lacks the complete branch/tag inventory. | Local-versus-remote parity can report thousands of false differences. | Compare GitHub directly with CNB, then separately verify the few locally maintained refs. |
+| GitHub could rename in place, while CNB required migration/reuse of another repository. | Provider identity changes are provider-specific workflows, not ordinary Git remote edits. | Verify target availability and contents before changing local URLs. |
+| CNB delete clients reported HTTP 412/403, but later API and Git reads both returned not found. | A mutation response is evidence, not the final state. Errors can leave the outcome unknown. | Always perform read-after-mutation checks against both provider metadata and Git transport. |
+| The retired CNB repository had no unique Git refs/releases/assets but did have five build logs. | Git parity does not preserve provider-side records. | Inventory and explicitly accept the loss of releases, assets, issues, builds, and logs before deletion. |
+| Documentation-only pushes to `enhanced` run the current build workflow. | Operational notes have real CI cost. | Batch related documentation updates and consider a reviewed `paths-ignore` rule for `MAINTAINING.md`. |
+| The guide once called the modified bundler “unchanged” and treated an attachment variable as a tag trigger. | Operational documentation must be checked against executable files, not only earlier prose. | During each review, grep hard-coded versions/triggers and compare claims with `.cnb.yml`, workflows, and scripts. |
+
+### 12.3 Next-rebase compaction plan
+
+The current replay stack mixes durable product behavior, obsolete
+intermediate implementations, release automation, and operational history.
+Do not compact it immediately: that would create an extra published-history
+rewrite with no upstream benefit. At the next scheduled baseline rewrite:
+
+1. Publish the normal timestamped rollback tag to both providers first.
+2. Save the current ordered commit list and net diff, then start an interactive
+   rebase on the current `$PREV` before moving to `$NEW`.
+3. Fold `agent, agent_ui: Add enhanced_yolo to test fixtures` into
+   `Add config-backed enhanced YOLO runtime`, because the fixtures are part of
+   that feature's completeness. Move that commit's bundled remote-server
+   selection hunks in `auto_update` into the bundling group.
+4. Keep the product marker, project-manager scaffold, and minidumper workaround
+   independently droppable.
+5. Fold both `script/bundle-mac` set-u fixes into the CNB/bundling patch. If
+   conflicts remain expensive, split that large patch into (a) CNB
+   runner/container files, (b) cross-compilation source shims, and (c) bundle
+   integration, with each resulting commit buildable.
+6. Replace the initial GitHub Actions workflow, its timeout tweak, and the
+   later replacement/refinement commits with one commit containing only the
+   final `.github/workflows/build-enhanced.yml` behavior.
+7. Split mixed workflow/documentation commits, then consolidate the
+   `MAINTAINING.md` history into one documentation commit. Preserve the
+   operational chronology in §10 before squashing commits.
+8. Before changing the baseline, prove compaction did not change the tree:
+   ```bash
+   git diff --exit-code "$ROLLBACK^{tree}" enhanced^{tree}
+   ```
+9. Rebase the compact stack onto `$NEW`, run §4.4, inspect `git range-diff`
+   between the archived and new series, and publish with the leases captured
+   in §4.1.
+
+Never rewrite the immutable upstream, enhanced-build, or archive tags as part
+of compaction. A smaller replay stack is valuable only if the final behavior,
+audit log, and rollback path remain intact.
+
+### 12.4 Provider rename and retirement runbook
+
+For any future provider rename, migration, or deletion:
+
+1. Record repository identity, visibility, default branch, fork parent,
+   current remote URLs, and complete head/tag snapshots.
+2. For GitHub, verify the target name is unused and use `gh repo rename`; then
+   verify the fork relationship and update the local remote, API paths,
+   release URLs, secrets documentation, and ledgers. Do not rely indefinitely
+   on GitHub's old-name redirect.
+3. For CNB, assume the slug cannot be renamed in place. Reuse or create the
+   destination, synchronize explicit refs, and prove destination parity before
+   retiring the source.
+4. Prove every source ref is preserved. Exact ref equality is simplest; if a
+   rolling branch advanced, prove the old tip is an ancestor of the active tip
+   or retain it under an immutable archive tag.
+5. Audit data outside Git: Git LFS objects, releases and attachments, generic
+   assets, issues/PRs, repository settings, build records/logs, packages, and
+   webhooks. State explicitly which records will migrate and which will be
+   discarded.
+6. Perform the authorized mutation, then poll both the provider API and Git
+   URL. Treat any disagreement or client error as **unknown**, not success or
+   failure, until repeated reads reach one terminal state.
+7. Update `MAINTAINING.md` and `REPOSITORY_SYNC_STATUS.md`, then rerun the full
+   active-provider parity proof.
+
+Advertised-ref parity proves preservation of all objects reachable from those
+refs. It does not prove preservation of unreachable server objects or
+provider-owned metadata.
+
+### 12.5 Documentation and CI discipline
+
+- Keep volatile SHAs and counts in the external synchronization ledger or
+  command output; embedding the current branch SHA in this tracked file is
+  self-referential.
+- Record decisions and observed failure modes here, but keep raw build logs
+  and temporary ref snapshots outside Git unless they are needed as durable
+  evidence.
+- Batch documentation changes when practical. Do not force-push merely to
+  reduce documentation commit count; use the scheduled compaction in §12.3.
+- If `paths-ignore: [MAINTAINING.md]` is added to the enhanced-branch trigger,
+  validate that workflow-file changes and enhanced tags still run all required
+  build and release jobs.
