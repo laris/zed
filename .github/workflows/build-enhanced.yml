@@ -169,12 +169,64 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  bundle_linux_remote_server_aarch64:
+    # GitHub-hosted arm64 runners are free for public repositories.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools clang
+
+      - name: Add Rust target
+        run: rustup target add aarch64-unknown-linux-musl
+
+      - name: Cache cargo registry / target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: linux-aarch64-musl-remote-server
+          cache-on-failure: 'true'
+
+      - name: Build remote_server (musl, static)
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: |
+          cargo build --release --target aarch64-unknown-linux-musl --package remote_server
+          ls -lh target/aarch64-unknown-linux-musl/release/remote_server
+
+      - name: Strip & gzip
+        run: |
+          set -euo pipefail
+          BIN=target/aarch64-unknown-linux-musl/release/remote_server
+          strip "$BIN"
+          gzip -f --stdout --best "$BIN" > zed-remote-server-linux-aarch64.gz
+          shasum -a 256 zed-remote-server-linux-aarch64.gz > zed-remote-server-linux-aarch64.gz.sha256
+          ls -lh zed-remote-server-linux-aarch64.gz
+
+      - name: Upload Linux remote-server
+        uses: actions/upload-artifact@v4
+        with:
+          name: zed-remote-server-linux-aarch64-gz
+          path: |
+            zed-remote-server-linux-aarch64.gz
+            zed-remote-server-linux-aarch64.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
   publish_release:
     # Only publish on enhanced/v* tag push, never on branch push or workflow_dispatch.
     if: startsWith(github.ref, 'refs/tags/enhanced/v')
     needs:
       - bundle_mac_aarch64
       - bundle_linux_remote_server_x86_64
+      - bundle_linux_remote_server_aarch64
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -202,9 +254,11 @@ jobs:
           cp ./artifacts/zed-preview-aarch64-release-dmg/Zed-aarch64.dmg                          release/Zed-aarch64.dmg
           # macOS remote-server
           cp ./artifacts/zed-remote-server-macos-aarch64-gz/zed-remote-server-macos-aarch64.gz    release/zed-remote-server-macos-aarch64.gz
-          # Linux remote-server + checksum
+          # Linux remote-servers + checksums
           cp ./artifacts/zed-remote-server-linux-x86_64-gz/zed-remote-server-linux-x86_64.gz        release/zed-remote-server-linux-x86_64.gz
           cp ./artifacts/zed-remote-server-linux-x86_64-gz/zed-remote-server-linux-x86_64.gz.sha256 release/zed-remote-server-linux-x86_64.gz.sha256
+          cp ./artifacts/zed-remote-server-linux-aarch64-gz/zed-remote-server-linux-aarch64.gz        release/zed-remote-server-linux-aarch64.gz
+          cp ./artifacts/zed-remote-server-linux-aarch64-gz/zed-remote-server-linux-aarch64.gz.sha256 release/zed-remote-server-linux-aarch64.gz.sha256
           ls -lh release
 
       - name: Create GitHub Release
