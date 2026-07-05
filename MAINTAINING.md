@@ -1109,16 +1109,17 @@ purpose-built, smaller workflow on GitHub-hosted runners.
 
 | Event                         | What happens                                                            |
 | ----------------------------- | ----------------------------------------------------------------------- |
-| Push to `enhanced` branch     | Both build jobs run; artifacts uploaded to the workflow run only.       |
-| Push of `enhanced/v*` tag     | Both build jobs run; **GitHub Release is created** with the artifacts.  |
+| Push to `enhanced` branch     | All build jobs run; artifacts uploaded to the workflow run only.        |
+| Push of `enhanced/v*` tag     | All build jobs run; **GitHub Release is created** with the artifacts.   |
 | `workflow_dispatch` (manual)  | Same as branch push; choose `release` or `dev` profile. No release.     |
 
 ### 11.2 Jobs
 
 | Job                                       | Runner          | Builds                                              | Approx time |
 | ----------------------------------------- | --------------- | --------------------------------------------------- | ----------- |
-| `bundle_mac_aarch64`                      | `macos-latest`  | `Zed-Preview.app`, `Zed-aarch64.dmg`, `zed-remote-server-macos-aarch64.gz` | 30–120 min (cache-dependent) |
+| `bundle_mac_aarch64`                      | `macos-latest`  | `Zed-Preview.app`, `Zed-aarch64.dmg`, `zed-remote-server-macos-aarch64.gz` | 30–160 min (cache-dependent; ~155 min observed cold after a baseline bump) |
 | `bundle_linux_remote_server_x86_64`       | `ubuntu-latest` | `zed-remote-server-linux-x86_64.gz` (musl, static)  | 5–15 min    |
+| `bundle_linux_remote_server_aarch64`      | `ubuntu-24.04-arm` | `zed-remote-server-linux-aarch64.gz` (musl, static) | 5–15 min    |
 | `publish_release`                         | `ubuntu-latest` | GitHub Release (tag push only)                      | 1–2 min     |
 
 ### 11.3 Release artifacts
@@ -1133,6 +1134,14 @@ GitHub Release under `https://github.com/laris/zed-yolo/releases/tag/<tag>` with
   server on a macOS aarch64 host.
 - `zed-remote-server-linux-x86_64.gz` + `.sha256` — gzipped statically-linked
   musl binary, runs on any glibc or musl Linux x86_64 host.
+- `zed-remote-server-linux-aarch64.gz` + `.sha256` — same, for Linux aarch64
+  hosts (added 2026-07-06; appended post-publication to `enhanced/v1.10.0-pre`).
+
+Assets may be **appended** to an already-published release only when they are
+built from a tree identical to the released tag (prove it:
+`git diff <tag>..enhanced -- ':(exclude).github' ':(exclude)MAINTAINING.md'`
+must be empty). Never replace or delete an existing asset; that breaks the
+immutability expectation just like moving the tag would.
 
 An `enhanced/vX.Y.Z-pre` build and its `-pre.N` re-spins are marked
 **prerelease**. An `enhanced/vX.Y.Z` build based on an upstream final release
